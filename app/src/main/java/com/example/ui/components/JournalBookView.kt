@@ -474,6 +474,8 @@ fun JournalBookView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         if (success && activePhotoFile != null) {
             val optimizedFile = MediaCompressionHelper.compressImageFile(context, activePhotoFile!!)
             editingAttachments = editingAttachments + "photo:${optimizedFile.absolutePath}"
+            com.example.widget.WidgetPhotoManager.ensureWidgetCopy(context, optimizedFile.absolutePath)
+            com.example.widget.WidgetUpdater.updatePhotoShowerWidget(context)
         }
     }
 
@@ -495,6 +497,10 @@ fun JournalBookView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
             val copiedFile = copyFileToInternalSandbox(context, uri)
             if (copiedFile != null) {
                 editingAttachments = editingAttachments + "file:${copiedFile.name}|path:${copiedFile.absolutePath}"
+                if (com.example.widget.WidgetPhotoManager.isPhotoAttachment(copiedFile.absolutePath)) {
+                    com.example.widget.WidgetPhotoManager.ensureWidgetCopy(context, copiedFile.absolutePath)
+                    com.example.widget.WidgetUpdater.updatePhotoShowerWidget(context)
+                }
             }
         }
     }
@@ -4563,10 +4569,14 @@ fun JournalBookView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             attach = attach,
                             isEditing = false,
                             onDelete = {
+                                if (com.example.widget.WidgetPhotoManager.isPhotoAttachment(attach)) {
+                                    com.example.widget.WidgetPhotoManager.deleteWidgetCopy(context, attach)
+                                }
                                 val newList = attachments.filter { it != attach }
                                 val updated = entry.copy(attachmentsJson = newList.joinToString(";;"))
                                 viewModel.updateJournalEntry(updated)
                                 viewingEntry = updated
+                                com.example.widget.WidgetUpdater.updatePhotoShowerWidget(context)
                             }
                         )
                     }

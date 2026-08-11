@@ -458,7 +458,7 @@ class AppViewModel(
 
     // Default tab list
     val defaultScreens = listOf(
-        Screen.DEEPA_AI, Screen.MESSAGES, Screen.KEEP_NOTES, Screen.OBSIDIAN_ARCHITECTURE, Screen.GOOGLE_DRIVE_SYNC, Screen.HEALTH, Screen.SEARCH, Screen.TASKS, Screen.CALENDAR, Screen.TIMER, Screen.ARENA, Screen.HABITS, Screen.COUNTDOWN, Screen.JOURNAL, Screen.CONTACTS, Screen.FILE_EXPLORER, Screen.FINANCES, Screen.ANALYTICS, Screen.SETTINGS
+        Screen.DEEPA_AI, Screen.MESSAGES, Screen.KEEP_NOTES, Screen.HEALTH, Screen.SEARCH, Screen.TASKS, Screen.CALENDAR, Screen.TIMER, Screen.ARENA, Screen.HABITS, Screen.COUNTDOWN, Screen.JOURNAL, Screen.CONTACTS, Screen.FILE_EXPLORER, Screen.FINANCES, Screen.ANALYTICS, Screen.SETTINGS, Screen.OBSIDIAN_ARCHITECTURE
     )
 
     // Dynamic Tab Order State
@@ -666,6 +666,19 @@ class AppViewModel(
 
     private val _youtubeCommentsBlocked = MutableStateFlow(false)
     val youtubeCommentsBlocked: StateFlow<Boolean> = _youtubeCommentsBlocked.asStateFlow()
+
+    // Spotify Web App / AntiSpotify States
+    private val _spotifyWebAppEnabled = MutableStateFlow(true)
+    val spotifyWebAppEnabled: StateFlow<Boolean> = _spotifyWebAppEnabled.asStateFlow()
+
+    fun setSpotifyWebAppEnabled(enabled: Boolean) {
+        _spotifyWebAppEnabled.value = enabled
+        val prefs = getApplication<android.app.Application>().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("spotify_web_app_enabled", enabled).apply()
+        if (enabled) {
+            com.example.util.ShortcutUtils.createSpotifyShortcut(getApplication())
+        }
+    }
 
     fun setYouTubeWebAppEnabled(enabled: Boolean) {
         _youtubeWebAppEnabled.value = enabled
@@ -5317,6 +5330,8 @@ class AppViewModel(
             checkOffDiaryHabitForToday()
             val attCount = mutableAttachments.filter { !it.startsWith("loc:") }.size
             notifyJournalEntryToChat(insertedId, cleanTitle, date, attCount)
+            com.example.widget.WidgetPhotoManager.syncWidgetCopiesForEntries(getApplication(), listOf(entry))
+            com.example.widget.WidgetUpdater.updatePhotoShowerWidget(getApplication())
         }
     }
 
@@ -5329,6 +5344,8 @@ class AppViewModel(
             if (entry.dateString == getCurrentDateString()) {
                 checkOffDiaryHabitForToday()
             }
+            com.example.widget.WidgetPhotoManager.syncWidgetCopiesForEntries(getApplication(), listOf(updatedEntry))
+            com.example.widget.WidgetUpdater.updatePhotoShowerWidget(getApplication())
         }
     }
 
@@ -5651,7 +5668,9 @@ class AppViewModel(
 
     fun deleteJournalEntry(entry: JournalEntry) {
         viewModelScope.launch {
+            com.example.widget.WidgetPhotoManager.deleteWidgetCopiesForEntry(getApplication(), entry)
             repository.deleteJournal(entry)
+            com.example.widget.WidgetUpdater.updatePhotoShowerWidget(getApplication())
         }
     }
 
@@ -10543,6 +10562,11 @@ class AppViewModel(
             com.example.util.UserMemoryManager.autoIngestChatHistory(getApplication())
         }
         viewModelScope.launch {
+            repository.allJournalEntries.collect {
+                com.example.widget.WidgetUpdater.updatePhotoShowerWidget(getApplication())
+            }
+        }
+        viewModelScope.launch {
             FocusTimerManager.lastResumeTimeMs.collect { resumeTime ->
                 if (resumeTime != null && resumeTime > 0L) {
                     savedStateHandle["ACTIVE_START_TS"] = resumeTime
@@ -10829,6 +10853,7 @@ class AppViewModel(
         _hideStatusBarInFullScreen.value = prefs.getBoolean("hide_status_bar_in_fullscreen", true)
         _showClockTimeInFullScreen.value = prefs.getBoolean("show_clock_time_in_fullscreen", true)
         _showBatteryInFullScreen.value = prefs.getBoolean("show_battery_in_fullscreen", true)
+        _spotifyWebAppEnabled.value = prefs.getBoolean("spotify_web_app_enabled", true)
         _instagramWebAppEnabled.value = prefs.getBoolean("instagram_web_app_enabled", false)
         _instagramOverrideOfficialApp.value = prefs.getBoolean("instagram_override_official_app", false)
         _instagramFilterNotifications.value = prefs.getBoolean("instagram_filter_notifications", true)

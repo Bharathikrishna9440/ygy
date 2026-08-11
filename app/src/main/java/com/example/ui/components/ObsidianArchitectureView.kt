@@ -176,13 +176,6 @@ fun ObsidianArchitectureView(
                             tint = Color(0xFF34D399)
                         )
                     }
-                    IconButton(onClick = { viewModel.navigateTo(Screen.GOOGLE_DRIVE_SYNC) }) {
-                        Icon(
-                            imageVector = Icons.Default.CloudSync,
-                            contentDescription = "Google Drive Sync",
-                            tint = Color(0xFF818CF8)
-                        )
-                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color(0xFF0F172A)

@@ -2028,8 +2028,7 @@ class MainActivity : ComponentActivity() {
             Screen.SETTINGS to NavigationItem(Screen.SETTINGS, Icons.Default.Settings, "Settings"),
             Screen.HEALTH to NavigationItem(Screen.HEALTH, Icons.Default.Favorite, "Health"),
             Screen.FLEX_GRID_STUDIO to NavigationItem(Screen.FLEX_GRID_STUDIO, Icons.Default.Dashboard, "Layout Studio"),
-            Screen.OBSIDIAN_ARCHITECTURE to NavigationItem(Screen.OBSIDIAN_ARCHITECTURE, Icons.Default.Info, "Obsidian Architecture"),
-            Screen.GOOGLE_DRIVE_SYNC to NavigationItem(Screen.GOOGLE_DRIVE_SYNC, Icons.Default.CloudSync, "Google Drive Sync")
+            Screen.OBSIDIAN_ARCHITECTURE to NavigationItem(Screen.OBSIDIAN_ARCHITECTURE, Icons.Default.Info, "Obsidian Architecture")
         )
         return order.mapNotNull { mapping[it] }
     }

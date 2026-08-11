@@ -3102,6 +3102,7 @@ fun AppBlocksSettingsSection(viewModel: AppViewModel) {
         var isIgReelsMuteAudio by remember { mutableStateOf(AppBlockHelper.isIgReelsMuteAudio(context)) }
 
         // YouTube Advanced Blocker Settings Card
+        val spotifyWebAppEnabled by viewModel.spotifyWebAppEnabled.collectAsState()
         val youtubeWebAppEnabled by viewModel.youtubeWebAppEnabled.collectAsState()
         val youtubeOverrideOfficialApp by viewModel.youtubeOverrideOfficialApp.collectAsState()
         var useSelectiveYt by remember { mutableStateOf(AppBlockHelper.isYtSelectiveBlockingEnabled(context)) }
@@ -3773,6 +3774,116 @@ fun AppBlocksSettingsSection(viewModel: AppViewModel) {
                                 fontSize = 9.sp,
                                 lineHeight = 12.sp
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Spotify Web Application (AntiSpotify) Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF09090C)),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0xFF1DB954).copy(alpha = 0.3f)),
+            modifier = Modifier.fillMaxWidth().testTag("spotify_web_app_card")
+        ) {
+            Column(
+                modifier = Modifier
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF1DB954).copy(alpha = 0.08f), Color(0xFF1AA34A).copy(alpha = 0.03f), Color.Transparent)
+                        )
+                    )
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1DB954)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = "Spotify",
+                            tint = Color.Black,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "SPOTIFY WEB APP (ANTISPOTIFY)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White,
+                            letterSpacing = 0.8.sp
+                        )
+                        Text(
+                            text = "Distraction-free web player with built-in adblock & offline audio saver.",
+                            fontSize = 10.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = Color.DarkGray.copy(alpha = 0.4f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text("Enable Spotify Web App (AntiSpotify)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("Launches full Spotify web application with ad filtering & song recording.", color = Color.Gray, fontSize = 10.sp, lineHeight = 13.sp)
+                    }
+                    Switch(
+                        checked = spotifyWebAppEnabled,
+                        onCheckedChange = { checked ->
+                            viewModel.setSpotifyWebAppEnabled(checked)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = Color(0xFF1DB954),
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = Color.DarkGray
+                        ),
+                        modifier = Modifier.testTag("spotify_web_app_enabled_switch")
+                    )
+                }
+
+                if (spotifyWebAppEnabled) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { viewModel.navigateTo(Screen.SPOTIFY_WEB_APP) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f).testTag("spotify_open_web_app_btn")
+                        ) {
+                            Text("Open AntiSpotify 🎵", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                val success = com.example.util.ShortcutUtils.createSpotifyShortcut(context)
+                                Toast.makeText(context, if (success) "Spotify shortcut added to Home Screen! 📲" else "Could not add shortcut.", Toast.LENGTH_SHORT).show()
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, Color(0xFF1DB954).copy(alpha = 0.5f)),
+                            modifier = Modifier.weight(1.1f).testTag("spotify_add_shortcut_btn")
+                        ) {
+                            Text("Add App Shortcut 📲", color = Color.White, fontSize = 11.sp)
                         }
                     }
                 }
@@ -7197,8 +7308,9 @@ fun SettingsGeneralSystemPage(
         val youtubeBlockHomeFeed by viewModel.youtubeBlockHomeFeed.collectAsState()
         val youtubeSearchBlocked by viewModel.youtubeSearchBlocked.collectAsState()
         val youtubeCommentsBlocked by viewModel.youtubeCommentsBlocked.collectAsState()
+        val spotifyWebAppEnabled by viewModel.spotifyWebAppEnabled.collectAsState()
         val context = LocalContext.current
-        var tempOrder by remember(tabOrder) { mutableStateOf(tabOrder.filterNot { it == Screen.FOCUS_LOCKER || it == Screen.LIVE_SPHERE || it == Screen.INSTAGRAM_WEB_APP || it == Screen.YOUTUBE_WEB_APP }) }
+        var tempOrder by remember(tabOrder) { mutableStateOf(tabOrder.filterNot { it == Screen.FOCUS_LOCKER || it == Screen.LIVE_SPHERE || it == Screen.INSTAGRAM_WEB_APP || it == Screen.YOUTUBE_WEB_APP || it == Screen.SPOTIFY_WEB_APP || it == Screen.GOOGLE_DRIVE_SYNC }) }
 
         // General System Page
         SettingsSubpageWorkspace(

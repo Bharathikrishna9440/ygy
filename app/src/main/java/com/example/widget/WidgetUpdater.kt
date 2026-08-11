@@ -893,7 +893,8 @@ object WidgetUpdater {
 
     private fun extractPhotosFromJournalEntries(entries: List<com.example.data.JournalEntry>): List<JournalPhotoItem> {
         val result = mutableListOf<JournalPhotoItem>()
-        for (entry in entries) {
+        val sortedEntries = entries.sortedByDescending { if (it.timestamp > 0) it.timestamp else System.currentTimeMillis() }
+        for (entry in sortedEntries) {
             val attachments = if (entry.attachmentsJson.isNotEmpty()) entry.attachmentsJson.split(";;") else emptyList()
             val formattedDate = formatJournalDateToDdMmYy(entry.dateString, entry.timestamp)
             val titleText = entry.title.ifBlank { "Journal Entry" }
@@ -903,11 +904,17 @@ object WidgetUpdater {
                 val trimmed = attach.trim()
                 if (trimmed.isEmpty()) continue
                 val lower = trimmed.lowercase()
+
+                if (lower.startsWith("author:") || lower.startsWith("folderlink:") || lower.startsWith("loc:") || lower.startsWith("audio:") || lower.startsWith("video:")) {
+                    continue
+                }
+
                 val isPhoto = lower.startsWith("photo:") ||
                         lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
-                        lower.endsWith(".png") || lower.endsWith(".webp") ||
-                        lower.startsWith("file://") || lower.startsWith("content://") ||
-                        (lower.startsWith("/") && (lower.contains("image") || lower.contains("photo") || lower.contains("dcim") || lower.contains("pictures")))
+                        lower.endsWith(".png") || lower.endsWith(".webp") || lower.endsWith(".gif") || lower.endsWith(".bmp") ||
+                        lower.startsWith("file://") || lower.startsWith("content://") || lower.startsWith("data:image/") ||
+                        lower.startsWith("http://") || lower.startsWith("https://") ||
+                        (lower.startsWith("/") && (lower.contains("image") || lower.contains("photo") || lower.contains("dcim") || lower.contains("pictures") || lower.contains("download") || lower.contains("cache")))
 
                 if (isPhoto) {
                     val cleanUrl = if (trimmed.startsWith("photo:", ignoreCase = true)) trimmed.substring(6).trim() else trimmed
@@ -920,193 +927,260 @@ object WidgetUpdater {
         return result
     }
 
-    private fun decodeJournalPhotoBitmap(context: Context, photoPath: String, targetWidthPx: Int, targetHeightPx: Int): android.graphics.Bitmap? {
+    private fun getRotationFromExif(inputStream: java.io.InputStream): Int {
+        return try {
+            val exif = android.media.ExifInterface(inputStream)
+            when (exif.getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL)) {
+                android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                else -> 0
+            }
+        } catch (_: Exception) { 0 }
+    }
+
+    private fun calculateInSampleSize(options: android.graphics.BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+        val (height: Int, width: Int) = options.outHeight to options.outWidth
+        var inSampleSize = 1
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight: Int = height / 2
+            val halfWidth: Int = width / 2
+            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
+    }
+
+    private fun rotateBitmapIfNeeded(bitmap: android.graphics.Bitmap, degrees: Int): android.graphics.Bitmap {
+        if (degrees == 0) return bitmap
+        return try {
+            val matrix = android.graphics.Matrix().apply { postRotate(degrees.toFloat()) }
+            val rotated = android.graphics.Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+            if (rotated != bitmap) bitmap.recycle()
+            rotated
+        } catch (_: Exception) {
+            bitmap
+        }
+    }
+
+    private fun renderScaledRoundedBitmap(src: android.graphics.Bitmap, targetW: Int, targetH: Int, cornerRadiusPx: Float): android.graphics.Bitmap {
+        val output = android.graphics.Bitmap.createBitmap(targetW, targetH, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(output)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+
+        val scale = maxOf(targetW.toFloat() / src.width, targetH.toFloat() / src.height)
+        val dx = (targetW - src.width * scale) / 2f
+        val dy = (targetH - src.height * scale) / 2f
+
+        val matrix = android.graphics.Matrix()
+        matrix.setScale(scale, scale)
+        matrix.postTranslate(dx, dy)
+
+        val rectF = android.graphics.RectF(0f, 0f, targetW.toFloat(), targetH.toFloat())
+        canvas.drawRoundRect(rectF, cornerRadiusPx, cornerRadiusPx, paint)
+
+        paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
+        canvas.drawBitmap(src, matrix, paint)
+
+        return output
+    }
+
+    private fun decodeJournalPhotoBitmap(context: Context, photoPath: String, targetWidthPx: Int = 360, targetHeightPx: Int = 240): android.graphics.Bitmap? {
         val trimmed = photoPath.trim()
         if (trimmed.isEmpty()) return null
 
         try {
-            // Case 1: content:// URI
+            var rawBitmap: android.graphics.Bitmap? = null
+            var exifRotation = 0
+
             if (trimmed.startsWith("content://")) {
                 val uri = android.net.Uri.parse(trimmed)
-                context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    val bytes = inputStream.readBytes()
-                    val options = android.graphics.BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        exifRotation = getRotationFromExif(stream)
                     }
+                } catch (_: Exception) {}
+
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val bytes = stream.readBytes()
+                    val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-
-                    var sampleSize = 1
-                    while (options.outWidth / (sampleSize * 2) >= targetWidthPx && options.outHeight / (sampleSize * 2) >= targetHeightPx) {
-                        sampleSize *= 2
-                    }
-                    val decodeOptions = android.graphics.BitmapFactory.Options().apply {
-                        inSampleSize = sampleSize
-                    }
-                    val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
-                    if (bmp != null) return getRoundedCornerBitmap(bmp, 36f)
+                    options.inSampleSize = calculateInSampleSize(options, targetWidthPx, targetHeightPx)
+                    options.inJustDecodeBounds = false
+                    rawBitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
                 }
-            }
-
-            // Case 2: Local File Path or file:// URI
-            if (trimmed.startsWith("/") || trimmed.startsWith("file://")) {
+            } else if (trimmed.startsWith("/") || trimmed.startsWith("file://")) {
                 val path = trimmed.removePrefix("file://")
                 val file = java.io.File(path)
                 if (file.exists() && file.length() > 0) {
-                    val options = android.graphics.BitmapFactory.Options().apply {
-                        inJustDecodeBounds = true
-                    }
+                    try {
+                        file.inputStream().use { stream ->
+                            exifRotation = getRotationFromExif(stream)
+                        }
+                    } catch (_: Exception) {}
+
+                    val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                     android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
-
-                    var sampleSize = 1
-                    while (options.outWidth / (sampleSize * 2) >= targetWidthPx && options.outHeight / (sampleSize * 2) >= targetHeightPx) {
-                        sampleSize *= 2
-                    }
-                    val decodeOptions = android.graphics.BitmapFactory.Options().apply {
-                        inSampleSize = sampleSize
-                    }
-                    val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
-                    if (bmp != null) return getRoundedCornerBitmap(bmp, 36f)
+                    options.inSampleSize = calculateInSampleSize(options, targetWidthPx, targetHeightPx)
+                    options.inJustDecodeBounds = false
+                    rawBitmap = android.graphics.BitmapFactory.decodeFile(file.absolutePath, options)
                 }
-            }
-
-            // Case 3: HTTP/HTTPS URL
-            if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            } else if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
                 val cacheFile = java.io.File(context.cacheDir, "journal_photo_widget_${Math.abs(trimmed.hashCode())}.png")
                 if (cacheFile.exists() && cacheFile.length() > 0) {
-                    val bmp = android.graphics.BitmapFactory.decodeFile(cacheFile.absolutePath)
-                    if (bmp != null) return getRoundedCornerBitmap(bmp, 36f)
-                }
-                val url = java.net.URL(trimmed)
-                val conn = url.openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 3000
-                conn.readTimeout = 3000
-                conn.doInput = true
-                conn.connect()
-                val inputStream = conn.inputStream
-                val bytes = inputStream.readBytes()
-                inputStream.close()
-                conn.disconnect()
-                cacheFile.writeBytes(bytes)
-                val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (bmp != null) return getRoundedCornerBitmap(bmp, 36f)
-            }
+                    val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeFile(cacheFile.absolutePath, options)
+                    options.inSampleSize = calculateInSampleSize(options, targetWidthPx, targetHeightPx)
+                    options.inJustDecodeBounds = false
+                    rawBitmap = android.graphics.BitmapFactory.decodeFile(cacheFile.absolutePath, options)
+                } else {
+                    val url = java.net.URL(trimmed)
+                    val conn = url.openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 4000
+                    conn.readTimeout = 4000
+                    conn.doInput = true
+                    conn.connect()
+                    val bytes = conn.inputStream.use { it.readBytes() }
+                    conn.disconnect()
+                    cacheFile.writeBytes(bytes)
 
-            // Case 4: Base64
-            if (trimmed.startsWith("base64:") || trimmed.startsWith("data:image/") || (trimmed.length > 80 && !trimmed.contains(" "))) {
+                    val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                    options.inSampleSize = calculateInSampleSize(options, targetWidthPx, targetHeightPx)
+                    options.inJustDecodeBounds = false
+                    rawBitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                }
+            } else if (trimmed.startsWith("base64:") || trimmed.startsWith("data:image/") || (trimmed.length > 80 && !trimmed.contains(" "))) {
                 val rawData = when {
                     trimmed.startsWith("base64:") -> trimmed.substringAfter("base64:")
                     trimmed.contains("base64,") -> trimmed.substringAfter("base64,")
                     else -> trimmed
                 }
                 val bytes = android.util.Base64.decode(rawData, android.util.Base64.DEFAULT)
-                val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                if (bmp != null) return getRoundedCornerBitmap(bmp, 36f)
+                val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                options.inSampleSize = calculateInSampleSize(options, targetWidthPx, targetHeightPx)
+                options.inJustDecodeBounds = false
+                rawBitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+            } else {
+                val uri = android.net.Uri.parse(trimmed)
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val bytes = stream.readBytes()
+                    val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                    options.inSampleSize = calculateInSampleSize(options, targetWidthPx, targetHeightPx)
+                    options.inJustDecodeBounds = false
+                    rawBitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                }
+            }
+
+            if (rawBitmap != null) {
+                val orientedBmp = rotateBitmapIfNeeded(rawBitmap, exifRotation)
+                return renderScaledRoundedBitmap(orientedBmp, targetWidthPx, targetHeightPx, 24f)
             }
         } catch (e: Exception) {
-            Log.e("WidgetUpdater", "Failed to decode journal photo bitmap: ${e.message}")
+            Log.e("WidgetUpdater", "Failed to decode journal photo bitmap for path $photoPath: ${e.message}")
         }
         return null
-    }
-
-    private fun getRoundedCornerBitmap(src: android.graphics.Bitmap, cornerRadiusPx: Float): android.graphics.Bitmap {
-        val output = android.graphics.Bitmap.createBitmap(src.width, src.height, android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(output)
-        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-        val rect = android.graphics.Rect(0, 0, src.width, src.height)
-        val rectF = android.graphics.RectF(rect)
-
-        canvas.drawARGB(0, 0, 0, 0)
-        canvas.drawRoundRect(rectF, cornerRadiusPx, cornerRadiusPx, paint)
-        paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
-        canvas.drawBitmap(src, rect, rect, paint)
-
-        return output
     }
 
     /**
      * Updates the Journal Photo Shower Native Home Screen Widget
      */
     fun updatePhotoShowerWidget(context: Context, forceNext: Boolean = false) {
-        val appWidgetManager = AppWidgetManager.getInstance(context)
-        val thisWidget = ComponentName(context, PhotoShowerWidgetProvider::class.java)
-        val allWidgetIds = appWidgetManager.getAppWidgetIds(thisWidget)
-        if (allWidgetIds.isEmpty()) return
+        try {
+            val appWidgetManager = AppWidgetManager.getInstance(context)
+            val thisWidget = ComponentName(context, PhotoShowerWidgetProvider::class.java)
+            val allWidgetIds = appWidgetManager.getAppWidgetIds(thisWidget)
+            if (allWidgetIds.isEmpty()) return
 
-        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-        val glassStyle = prefs.getString("widget_glass_style", "black_glass") ?: "black_glass"
-        val bgRes = if (glassStyle == "clear_glass") R.drawable.widget_background_clear_glass else R.drawable.widget_background_black_glass
+            val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            val glassStyle = prefs.getString("widget_glass_style", "black_glass") ?: "black_glass"
+            val bgRes = if (glassStyle == "clear_glass") R.drawable.widget_background_clear_glass else R.drawable.widget_background_black_glass
 
-        val journalEntries = try {
-            val database = com.example.data.AppDatabase.getInstance(context)
-            kotlinx.coroutines.runBlocking { database.journalDao().getAllJournalEntriesDirect() }
-        } catch (e: Exception) {
-            emptyList<com.example.data.JournalEntry>()
-        }
-
-        val photoItems = extractPhotosFromJournalEntries(journalEntries)
-
-        val nextIntent = Intent(context, PhotoShowerWidgetProvider::class.java).apply {
-            action = "com.example.widget.ACTION_PHOTO_SHOWER_NEXT"
-        }
-        val nextPending = PendingIntent.getBroadcast(context, 5001, nextIntent, getPendingIntentFlags())
-
-        for (widgetId in allWidgetIds) {
-            val remoteViews = RemoteViews(context.packageName, R.layout.widget_photo_shower).apply {
-                setInt(android.R.id.background, "setBackgroundResource", bgRes)
-                setOnClickPendingIntent(R.id.btn_next_photo, nextPending)
-
-                if (photoItems.isEmpty()) {
-                    setViewVisibility(R.id.photo_shower_image, android.view.View.GONE)
-                    setViewVisibility(R.id.photo_bottom_shadow, android.view.View.GONE)
-                    setViewVisibility(R.id.photo_date_container, android.view.View.GONE)
-                    setViewVisibility(R.id.photo_shower_caption_layout, android.view.View.GONE)
-                    setViewVisibility(R.id.photo_shower_empty_layout, android.view.View.VISIBLE)
-
-                    val openAppIntent = Intent(context, MainActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        putExtra("SHOW_JOURNAL_PAGE", true)
-                    }
-                    val openAppPending = PendingIntent.getActivity(context, 5002, openAppIntent, getPendingIntentFlags())
-                    setOnClickPendingIntent(android.R.id.background, openAppPending)
-                } else {
-                    setViewVisibility(R.id.photo_shower_empty_layout, android.view.View.GONE)
-                    setViewVisibility(R.id.photo_shower_image, android.view.View.VISIBLE)
-                    setViewVisibility(R.id.photo_bottom_shadow, android.view.View.VISIBLE)
-                    setViewVisibility(R.id.photo_date_container, android.view.View.VISIBLE)
-                    setViewVisibility(R.id.photo_shower_caption_layout, android.view.View.VISIBLE)
-
-                    var currentIndex = prefs.getInt("journal_photo_widget_index_$widgetId", 0)
-                    if (forceNext) {
-                        currentIndex = (currentIndex + 1) % photoItems.size
-                    } else {
-                        currentIndex = currentIndex % photoItems.size
-                    }
-                    prefs.edit().putInt("journal_photo_widget_index_$widgetId", currentIndex).apply()
-
-                    val currentPhoto = photoItems[currentIndex]
-
-                    setTextViewText(R.id.photo_shower_date, currentPhoto.dateFormatted)
-                    setTextViewText(R.id.photo_shower_title, currentPhoto.title)
-                    setTextViewText(R.id.photo_shower_text, currentPhoto.text)
-
-                    val bitmap = decodeJournalPhotoBitmap(context, currentPhoto.photoUrl, 600, 400)
-                    if (bitmap != null) {
-                        setImageViewBitmap(R.id.photo_shower_image, bitmap)
-                    } else {
-                        setImageViewResource(R.id.photo_shower_image, R.drawable.widget_background)
-                    }
-
-                    val openJournalIntent = Intent(context, MainActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        putExtra("SHOW_JOURNAL_PAGE", true)
-                        putExtra("JOURNAL_ENTRY_ID", currentPhoto.entryId)
-                    }
-                    val openJournalPending = PendingIntent.getActivity(context, 5000 + widgetId, openJournalIntent, getPendingIntentFlags())
-                    setOnClickPendingIntent(R.id.photo_shower_image, openJournalPending)
-                    setOnClickPendingIntent(R.id.photo_shower_caption_layout, openJournalPending)
-                }
+            val journalEntries = try {
+                val database = com.example.data.AppDatabase.getInstance(context)
+                kotlinx.coroutines.runBlocking { database.journalDao().getAllJournalEntriesDirect() }
+            } catch (e: Exception) {
+                emptyList<com.example.data.JournalEntry>()
             }
-            appWidgetManager.updateAppWidget(widgetId, remoteViews)
+
+            WidgetPhotoManager.cleanupOrphanedWidgetCopies(context, journalEntries)
+
+            val photoItems = extractPhotosFromJournalEntries(journalEntries)
+
+            val nextIntent = Intent(context, PhotoShowerWidgetProvider::class.java).apply {
+                action = "com.example.widget.ACTION_PHOTO_SHOWER_NEXT"
+            }
+            val nextPending = PendingIntent.getBroadcast(context, 5001, nextIntent, getPendingIntentFlags())
+
+            for (widgetId in allWidgetIds) {
+                val remoteViews = RemoteViews(context.packageName, R.layout.widget_photo_shower).apply {
+                    setInt(R.id.photo_shower_root, "setBackgroundResource", bgRes)
+                    setOnClickPendingIntent(R.id.btn_next_photo, nextPending)
+
+                    if (photoItems.isEmpty()) {
+                        setViewVisibility(R.id.photo_shower_image, android.view.View.GONE)
+                        setViewVisibility(R.id.photo_bottom_shadow, android.view.View.GONE)
+                        setViewVisibility(R.id.photo_date_container, android.view.View.GONE)
+                        setViewVisibility(R.id.photo_shower_caption_layout, android.view.View.GONE)
+                        setViewVisibility(R.id.photo_shower_empty_layout, android.view.View.VISIBLE)
+
+                        val openAppIntent = Intent(context, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            putExtra("SHOW_JOURNAL_PAGE", true)
+                        }
+                        val openAppPending = PendingIntent.getActivity(context, 5002, openAppIntent, getPendingIntentFlags())
+                        setOnClickPendingIntent(R.id.photo_shower_root, openAppPending)
+                    } else {
+                        setViewVisibility(R.id.photo_shower_empty_layout, android.view.View.GONE)
+                        setViewVisibility(R.id.photo_shower_image, android.view.View.VISIBLE)
+                        setViewVisibility(R.id.photo_bottom_shadow, android.view.View.VISIBLE)
+                        setViewVisibility(R.id.photo_date_container, android.view.View.VISIBLE)
+                        setViewVisibility(R.id.photo_shower_caption_layout, android.view.View.VISIBLE)
+
+                        var currentIndex = prefs.getInt("journal_photo_widget_index_$widgetId", 0)
+                        if (forceNext) {
+                            currentIndex = (currentIndex + 1) % photoItems.size
+                        } else {
+                            currentIndex = currentIndex % photoItems.size
+                        }
+                        prefs.edit().putInt("journal_photo_widget_index_$widgetId", currentIndex).apply()
+
+                        val currentPhoto = photoItems[currentIndex]
+
+                        setTextViewText(R.id.photo_shower_date, currentPhoto.dateFormatted)
+                        setTextViewText(R.id.photo_shower_title, currentPhoto.title)
+                        setTextViewText(R.id.photo_shower_text, currentPhoto.text)
+
+                        val widgetCopyFile = WidgetPhotoManager.ensureWidgetCopy(context, currentPhoto.photoUrl, 360, 240)
+                        val bitmap = if (widgetCopyFile != null && widgetCopyFile.exists()) {
+                            android.graphics.BitmapFactory.decodeFile(widgetCopyFile.absolutePath)
+                        } else {
+                            decodeJournalPhotoBitmap(context, currentPhoto.photoUrl, 360, 240)
+                        }
+
+                        if (bitmap != null) {
+                            setImageViewBitmap(R.id.photo_shower_image, bitmap)
+                        } else {
+                            setImageViewResource(R.id.photo_shower_image, R.drawable.widget_background)
+                        }
+
+                        val openJournalIntent = Intent(context, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            putExtra("SHOW_JOURNAL_PAGE", true)
+                            putExtra("JOURNAL_ENTRY_ID", currentPhoto.entryId)
+                        }
+                        val openJournalPending = PendingIntent.getActivity(context, 5000 + widgetId, openJournalIntent, getPendingIntentFlags())
+                        setOnClickPendingIntent(R.id.photo_shower_image, openJournalPending)
+                        setOnClickPendingIntent(R.id.photo_shower_caption_layout, openJournalPending)
+                    }
+                }
+                appWidgetManager.updateAppWidget(widgetId, remoteViews)
+            }
+        } catch (e: Exception) {
+            Log.e("WidgetUpdater", "Critical error updating photo shower widget: ${e.message}", e)
         }
     }
 }
