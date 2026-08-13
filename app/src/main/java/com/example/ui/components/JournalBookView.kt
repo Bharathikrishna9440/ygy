@@ -121,7 +121,7 @@ fun resolveAuthorName(context: android.content.Context): String {
         return nickname
     }
 
-    val currentAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+    val currentAccount = com.example.util.GmsUtils.getLastSignedInAccount(context)
     val googleName = currentAccount?.displayName
     if (!googleName.isNullOrBlank()) {
         return googleName

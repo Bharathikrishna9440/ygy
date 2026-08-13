@@ -907,6 +907,15 @@ fun WebOfficeDocumentViewer(
                     loadUrl(docUrl)
                 }
             },
+            onRelease = { wv ->
+                try {
+                    wv.stopLoading()
+                    wv.onPause()
+                    wv.pauseTimers()
+                    wv.removeAllViews()
+                    wv.destroy()
+                } catch (_: Exception) {}
+            },
             modifier = Modifier.fillMaxSize()
         )
 

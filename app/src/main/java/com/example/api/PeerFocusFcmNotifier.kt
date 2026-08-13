@@ -44,7 +44,7 @@ object PeerFocusFcmNotifier {
      * 2) General study group topic: "peer_focus_alerts"
      */
     fun subscribeToTopics(context: Context, email: String) {
-        if (email.isBlank()) return
+        if (email.isBlank() || !com.example.util.GmsUtils.isGmsAvailable(context)) return
         try {
             val sanitized = DevicePresenceManager.sanitizeEmail(email)
             val userTopic = "user_$sanitized"

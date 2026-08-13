@@ -97,6 +97,14 @@ fun InstagramWebBrowserScreen(
         com.example.util.AppBlockHelper.isAntiGramWebAppOpen = true
         onDispose {
             com.example.util.AppBlockHelper.isAntiGramWebAppOpen = false
+            try {
+                webViewInstance?.stopLoading()
+                webViewInstance?.onPause()
+                webViewInstance?.pauseTimers()
+                webViewInstance?.removeAllViews()
+                webViewInstance?.destroy()
+                webViewInstance = null
+            } catch (_: Exception) {}
         }
     }
 
@@ -235,7 +243,13 @@ fun InstagramWebBrowserScreen(
                     div[aria-label*="Reels"],
                     div[role="tab"]:has(a[href*="/reels"]),
                     div[role="tab"]:has(a[href*="/reel"]),
-                    div[role="listitem"]:has(a[href*="/reels"]) {
+                    div[role="listitem"]:has(a[href*="/reels"]),
+                    article:has(a[href*="/reel/"]),
+                    article:has(a[href*="/reels/"]),
+                    section:has(a[href*="/reel/"]),
+                    section:has(a[href*="/reels/"]),
+                    div[role="presentation"]:has(a[href*="/reel/"]),
+                    div[role="listitem"]:has(a[href*="/reel/"]) {
                         display: none !important;
                     }
                 `;
@@ -386,13 +400,34 @@ fun InstagramWebBrowserScreen(
                 if (${reelsBlocked}) {
                     hideElementAndParent('a[href*="/reels"], a[href*="/reel"], a[aria-label*="Reels"], a[aria-label*="reels"], svg[aria-label*="Reels"], svg[aria-label*="reels"], div[aria-label*="Reels"]');
 
-                    // Hide articles containing reels
-                    var articles = document.querySelectorAll('article');
-                    for (var j = 0; j < articles.length; j++) {
-                        var art = articles[j];
-                        if (art.querySelector('a[href*="/reel/"]') || art.querySelector('a[href*="/reels/"]')) {
-                            if (!(${allowSharedReels} && path.startsWith('/direct'))) {
-                                art.style.display = 'none';
+                    // 1. Hide articles, divs, and sections containing reel links or reel badges
+                    var reelLinks = document.querySelectorAll('a[href*="/reel/"], a[href*="/reels/"], a[href*="/reels"]');
+                    for (var rl = 0; rl < reelLinks.length; rl++) {
+                        var link = reelLinks[rl];
+                        if (${allowSharedReels} && path.startsWith('/direct')) continue;
+                        
+                        var postOrCard = link.closest('article') || 
+                                          link.closest('div[role="listitem"]') || 
+                                          link.closest('div[role="presentation"]') || 
+                                          link.closest('section') || 
+                                          link.closest('div._a9zq') ||
+                                          link.closest('div.x1lli21q');
+                        if (postOrCard && postOrCard !== document.body && postOrCard.tagName !== 'MAIN') {
+                            postOrCard.style.display = 'none';
+                        }
+                    }
+
+                    // 2. Hide "Suggested Reels" / "Reels and short videos" trays and sections
+                    var headings = document.querySelectorAll('span, h2, h3, div');
+                    for (var h = 0; h < headings.length; h++) {
+                        var txt = headings[h].innerText ? headings[h].innerText.trim().toLowerCase() : '';
+                        if (txt === 'reels' || txt === 'suggested reels' || txt === 'reels and short videos' || txt === 'suggested reels for you') {
+                            var reelSection = headings[h].closest('section') || 
+                                              headings[h].closest('div[role="region"]') || 
+                                              headings[h].closest('article') || 
+                                              headings[h].parentElement?.parentElement?.parentElement;
+                            if (reelSection && reelSection !== document.body && reelSection.tagName !== 'MAIN') {
+                                reelSection.style.display = 'none';
                             }
                         }
                     }
@@ -501,6 +536,8 @@ fun InstagramWebBrowserScreen(
                         javaScriptCanOpenWindowsAutomatically = true
                         mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                         userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                        setRenderPriority(WebSettings.RenderPriority.HIGH)
+                        cacheMode = WebSettings.LOAD_DEFAULT
                     }
                     webViewClient = object : WebViewClient() {
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -593,6 +630,15 @@ fun InstagramWebBrowserScreen(
             update = { webView ->
                 webViewInstance = webView
                 webView.evaluateJavascript(antiGramJs, null)
+            },
+            onRelease = { wv ->
+                try {
+                    wv.stopLoading()
+                    wv.onPause()
+                    wv.pauseTimers()
+                    wv.removeAllViews()
+                    wv.destroy()
+                } catch (_: Exception) {}
             }
         )
 

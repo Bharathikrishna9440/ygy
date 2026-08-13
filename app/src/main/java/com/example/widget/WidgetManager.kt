@@ -216,7 +216,7 @@ object WidgetManager {
         if (isMeFocusing) {
             val myName = prefs.getString("username", "")?.ifEmpty { prefs.getString("nickname", "Me") } ?: "Me"
             val myEmoji = prefs.getString("user_emoji", "") ?: ""
-            val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+            val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(context)
             val photoUrl = googleAccount?.photoUrl?.toString() ?: prefs.getString("user_photo_url", "") ?: ""
             val myAvatar = when {
                 myEmoji.isNotEmpty() && myEmoji != "👤" -> myEmoji

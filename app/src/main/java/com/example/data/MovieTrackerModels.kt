@@ -18,10 +18,10 @@ enum class ListVisibility {
 @JsonClass(generateAdapter = true)
 data class UserHotTake(
     @Json(name = "id") val id: String = java.util.UUID.randomUUID().toString(),
-    @Json(name = "userId") val userId: String = "user_1",
-    @Json(name = "userName") val userName: String = "Subash",
+    @Json(name = "userId") val userId: String = "user_me",
+    @Json(name = "userName") val userName: String = "You",
     @Json(name = "avatarUrl") val avatarUrl: String = "",
-    @Json(name = "rating") val rating: Float = 4.5f, // 1 to 5 stars
+    @Json(name = "rating") val rating: Float = 5.0f, // 1 to 5 stars
     @Json(name = "review") val review: String = "", // 1-sentence review
     @Json(name = "timestamp") val timestamp: Long = System.currentTimeMillis()
 )

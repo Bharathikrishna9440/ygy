@@ -15,6 +15,7 @@ import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -494,6 +495,14 @@ fun SpotifyWebBrowserScreen(
                 offlineMediaPlayer?.stop()
                 offlineMediaPlayer?.release()
             } catch (_: Exception) {}
+            try {
+                webViewInstance?.stopLoading()
+                webViewInstance?.onPause()
+                webViewInstance?.pauseTimers()
+                webViewInstance?.removeAllViews()
+                webViewInstance?.destroy()
+                webViewInstance = null
+            } catch (_: Exception) {}
         }
     }
 
@@ -875,8 +884,13 @@ fun SpotifyWebBrowserScreen(
                                 domStorageEnabled = true
                                 databaseEnabled = true
                                 mediaPlaybackRequiresUserGesture = false
-                                userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36"
+                                useWideViewPort = true
+                                loadWithOverviewMode = true
+                                userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                                setRenderPriority(WebSettings.RenderPriority.HIGH)
+                                cacheMode = WebSettings.LOAD_DEFAULT
                             }
+                            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
 
                             // JS Bridge for track metadata callback
                             addJavascriptInterface(
@@ -897,33 +911,124 @@ fun SpotifyWebBrowserScreen(
                             )
 
                             webViewClient = object : WebViewClient() {
-                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                    super.onPageStarted(view, url, favicon)
-                                    isLoading = true
-                                }
-
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    isLoading = false
-
-                                    // Inject JavaScript for AdBlocker & Track Metadata Extraction
+                                private fun injectWindowsSpoofAndAntiPremium(view: WebView?) {
                                     val script = """
                                     (function() {
-                                        // 1. AdBlocker: Hide ad banners, dismiss upsell dialogs
-                                        function removeAds() {
-                                            var selectors = [
-                                                '.ad-unit', '[data-testid="ad-indicator"]', '[aria-label="Advertisement"]',
-                                                '.top-bar-ad-banner', '.LeaderboardAd', '.spotlight-ad',
-                                                'iframe[src*="doubleclick"]', 'iframe[src*="adservice"]'
-                                            ];
-                                            selectors.forEach(function(s) {
-                                                document.querySelectorAll(s).forEach(function(el) {
-                                                    el.style.display = 'none';
+                                        // 1. Windows Browser Device Spoofing
+                                        try {
+                                            if (!window.__winDeviceSpoofed) {
+                                                window.__winDeviceSpoofed = true;
+                                                Object.defineProperty(navigator, 'platform', { get: function() { return 'Win32'; }, configurable: true });
+                                                Object.defineProperty(navigator, 'vendor', { get: function() { return 'Google Inc.'; }, configurable: true });
+                                                Object.defineProperty(navigator, 'maxTouchPoints', { get: function() { return 0; }, configurable: true });
+                                                Object.defineProperty(navigator, 'userAgent', { get: function() { return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'; }, configurable: true });
+                                                Object.defineProperty(navigator, 'appVersion', { get: function() { return '5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'; }, configurable: true });
+                                                if (navigator.userAgentData) {
+                                                    Object.defineProperty(navigator, 'userAgentData', {
+                                                        get: function() {
+                                                            return {
+                                                                brands: [
+                                                                    { brand: 'Chromium', version: '128' },
+                                                                    { brand: 'Google Chrome', version: '128' }
+                                                                ],
+                                                                mobile: false,
+                                                                platform: 'Windows',
+                                                                getHighEntropyValues: function() {
+                                                                    return Promise.resolve({
+                                                                        architecture: 'x86',
+                                                                        bitness: '64',
+                                                                        model: '',
+                                                                        platform: 'Windows',
+                                                                        platformVersion: '15.0.0',
+                                                                        uaFullVersion: '128.0.0.0'
+                                                                    });
+                                                                }
+                                                            };
+                                                        },
+                                                        configurable: true
+                                                    });
+                                                }
+                                            }
+                                        } catch(e) {}
+
+                                        // 2. Anti-Premium & Ad Removal: Inject CSS Rules & Hide Banners/Tabs
+                                        function removeAdsAndPremium() {
+                                            try {
+                                                if (!document.getElementById('anti-premium-style')) {
+                                                    var style = document.createElement('style');
+                                                    style.id = 'anti-premium-style';
+                                                    style.innerHTML = `
+                                                        a[href*="/premium"],
+                                                        a[href*="/upgrade"],
+                                                        [data-testid="premium-upgrade-button"],
+                                                        [data-testid="upgrade-button"],
+                                                        [data-testid="top-bar-upgrade-button"],
+                                                        .main-topBar-upgradeButton,
+                                                        .main-actionButtons-upgrade,
+                                                        [aria-label*="Upgrade"],
+                                                        [aria-label*="Premium"],
+                                                        [data-testid="billboard-banner"],
+                                                        [data-testid="ad-indicator"],
+                                                        .ad-unit,
+                                                        .top-bar-ad-banner,
+                                                        .LeaderboardAd,
+                                                        .spotlight-ad,
+                                                        iframe[src*="doubleclick"],
+                                                        iframe[src*="adservice"],
+                                                        div[class*="PremiumBanner"],
+                                                        div[class*="premiumBanner"],
+                                                        div[class*="UpgradeButton"],
+                                                        section[data-testid="premium-upsell"],
+                                                        [data-testid="navigation-item-premium"],
+                                                        [data-testid="user-widget-link-upgrade"],
+                                                        div[data-testid="now-playing-bar-ad-banner"] {
+                                                            display: none !important;
+                                                            visibility: hidden !important;
+                                                            height: 0 !important;
+                                                            width: 0 !important;
+                                                            opacity: 0 !important;
+                                                            pointer-events: none !important;
+                                                        }
+                                                    `;
+                                                    (document.head || document.documentElement).appendChild(style);
+                                                }
+
+                                                var selectors = [
+                                                    '.ad-unit', '[data-testid="ad-indicator"]', '[aria-label="Advertisement"]',
+                                                    '.top-bar-ad-banner', '.LeaderboardAd', '.spotlight-ad',
+                                                    'iframe[src*="doubleclick"]', 'iframe[src*="adservice"]',
+                                                    'a[href*="/premium"]', 'a[href*="/upgrade"]',
+                                                    '[data-testid="premium-upgrade-button"]', '[data-testid="upgrade-button"]',
+                                                    '[data-testid="top-bar-upgrade-button"]', '.main-topBar-upgradeButton',
+                                                    '.main-actionButtons-upgrade', '[data-testid="billboard-banner"]',
+                                                    '[data-testid="navigation-item-premium"]'
+                                                ];
+                                                selectors.forEach(function(s) {
+                                                    document.querySelectorAll(s).forEach(function(el) {
+                                                        el.style.display = 'none';
+                                                    });
                                                 });
-                                            });
+
+                                                var allElements = document.querySelectorAll('a, button, div, span, li, p');
+                                                allElements.forEach(function(el) {
+                                                    if (!el || !el.innerText) return;
+                                                    var txt = el.innerText.trim().toLowerCase();
+                                                    if (txt === 'get premium' || txt === 'take premium' || txt === 'upgrade' ||
+                                                        txt === 'upgrade to premium' || txt === 'explore premium' || txt === 'try premium' ||
+                                                        txt === 'premium tba' || txt === 'enjoy premium' || txt.includes('get 3 months of premium') ||
+                                                        txt.includes('upgrade for') || txt === 'premium') {
+                                                        if (el.tagName === 'A' || el.tagName === 'BUTTON' || el.tagName === 'LI' || el.getAttribute('role') === 'button') {
+                                                            el.style.display = 'none';
+                                                        } else if (el.closest) {
+                                                            var target = el.closest('a') || el.closest('button') || el.closest('li');
+                                                            if (target) target.style.display = 'none';
+                                                        }
+                                                    }
+                                                });
+                                            } catch(e) {}
                                         }
 
-                                        // 2. Track Info Poller
+                                        // 3. Track Info Poller
                                         function pollTrackInfo() {
                                             try {
                                                 var titleEl = document.querySelector('[data-testid="now-playing-widget"] [data-testid="context-item-info-title"] a') ||
@@ -936,7 +1041,7 @@ fun SpotifyWebBrowserScreen(
                                                 var audioEl = document.querySelector('audio');
 
                                                 var title = titleEl ? titleEl.innerText : (document.title ? document.title.split('•')[0].trim() : 'No track playing');
-                                                var artist = artistEl ? artistEl.innerText : (document.title && document.title.contains('•') ? document.title.split('•')[1].replace('| Spotify','').trim() : 'Spotify Web');
+                                                var artist = artistEl ? artistEl.innerText : (document.title && document.title.indexOf('•') !== -1 ? document.title.split('•')[1].replace('| Spotify','').trim() : 'Spotify Web');
                                                 var coverUrl = imgEl ? imgEl.src : '';
                                                 var isPlaying = audioEl ? !audioEl.paused : false;
                                                 var currentTime = audioEl ? Math.floor(audioEl.currentTime) : 0;
@@ -948,12 +1053,25 @@ fun SpotifyWebBrowserScreen(
                                             } catch(e) {}
                                         }
 
-                                        setInterval(removeAds, 2000);
+                                        removeAdsAndPremium();
+                                        setInterval(removeAdsAndPremium, 1500);
                                         setInterval(pollTrackInfo, 1000);
                                     })();
                                     """.trimIndent()
 
                                     view?.evaluateJavascript(script, null)
+                                }
+
+                                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                    super.onPageStarted(view, url, favicon)
+                                    isLoading = true
+                                    injectWindowsSpoofAndAntiPremium(view)
+                                }
+
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    isLoading = false
+                                    injectWindowsSpoofAndAntiPremium(view)
                                 }
 
                                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
@@ -962,7 +1080,8 @@ fun SpotifyWebBrowserScreen(
                                         val adDomains = listOf(
                                             "doubleclick.net", "googlesyndication.com", "google-analytics.com",
                                             "adservice.google.com", "pagead2.googlesyndication.com",
-                                            "scorecardresearch.com", "spotify.com/ad-", "audio-ads"
+                                            "scorecardresearch.com", "spotify.com/ad-", "audio-ads",
+                                            "spotify.com/get-premium"
                                         )
                                         if (adDomains.any { reqUrl.contains(it, ignoreCase = true) }) {
                                             return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream("".toByteArray()))
@@ -975,6 +1094,15 @@ fun SpotifyWebBrowserScreen(
                             loadUrl("https://open.spotify.com")
                             webViewInstance = this
                         }
+                    },
+                    onRelease = { wv ->
+                        try {
+                            wv.stopLoading()
+                            wv.onPause()
+                            wv.pauseTimers()
+                            wv.removeAllViews()
+                            wv.destroy()
+                        } catch (_: Throwable) {}
                     },
                     modifier = Modifier.fillMaxSize()
                 )

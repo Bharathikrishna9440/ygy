@@ -1251,7 +1251,7 @@ fun CalendarSettingsSection(viewModel: AppViewModel) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        val googleAccount = remember { try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null } }
+        val googleAccount = remember { com.example.util.GmsUtils.getLastSignedInAccount(context) }
         val defaultEmail = googleAccount?.email ?: "cabharathikrishan@gmail.com"
         var selectedTasksAccount by remember { mutableStateOf(prefs.getString("selected_tasks_account", defaultEmail)) }
 
@@ -2453,7 +2453,7 @@ fun LifeOSBackupSection(viewModel: AppViewModel) {
                     if (!hasDrivePermission) {
                         Button(
                             onClick = {
-                                val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+                                val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(context)
                                 if (googleAccount == null) {
                                     try {
                                         val driveScope = com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.appdata")
@@ -4535,7 +4535,7 @@ fun GoogleCalendarAndTasksSyncSection(viewModel: AppViewModel) {
     val calendarSyncStatus by viewModel.calendarSyncStatus.collectAsState()
     val googleTasksSyncStatus by viewModel.googleTasksSyncStatus.collectAsState()
     
-    val googleAccount = remember { try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null } }
+    val googleAccount = remember { com.example.util.GmsUtils.getLastSignedInAccount(context) }
     
     // Auth launcher for tasks sync
     val tasksAuthLauncher = rememberLauncherForActivityResult(
@@ -5146,7 +5146,7 @@ fun SettingsContactsPage(
                         fontSize = 11.sp
                     )
 
-                    val googleAccount = remember { try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null } }
+                    val googleAccount = remember { com.example.util.GmsUtils.getLastSignedInAccount(context) }
                     val defaultEmail = googleAccount?.email ?: "cabharathikrishan@gmail.com"
                     val prefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
                     var contactsAccount by remember { mutableStateOf(prefs.getString("selected_contacts_account", defaultEmail)) }
@@ -6664,7 +6664,7 @@ fun SettingsFileExplorerPage(
 
                 HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
 
-                val googleAccount = remember { try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null } }
+                val googleAccount = remember { com.example.util.GmsUtils.getLastSignedInAccount(context) }
                 val defaultEmail = googleAccount?.email ?: "cabharathikrishan@gmail.com"
                 val prefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
                 var fileBackupAccount by remember { mutableStateOf(prefs.getString("selected_file_backup_account", defaultEmail)) }
@@ -8890,7 +8890,7 @@ fun SettingsPermissionsPage(viewModel: AppViewModel, onBack: () -> Unit) {
 
 fun hasGoogleScope(context: Context, scopeUri: String): Boolean {
     return try {
-        val account = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+        val account = com.example.util.GmsUtils.getLastSignedInAccount(context)
         account != null && account.grantedScopes.any { it.scopeUri.equals(scopeUri, ignoreCase = true) }
     } catch (e: Throwable) {
         false
@@ -9149,7 +9149,7 @@ fun PermissionsSettingsSection(viewModel: AppViewModel) {
             isGranted = hasDrivePermission,
             onClick = {
                 if (!hasDrivePermission) {
-                    val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+                    val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(context)
                     if (googleAccount == null) {
                         triggerGoogleSignInForScopes(listOf(
                             com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.appdata"),
@@ -9172,7 +9172,7 @@ fun PermissionsSettingsSection(viewModel: AppViewModel) {
             isGranted = hasGoogleContactsPermission,
             onClick = {
                 if (!hasGoogleContactsPermission) {
-                    val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+                    val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(context)
                     if (googleAccount == null) {
                         triggerGoogleSignInForScopes(listOf(
                             com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/contacts")
@@ -9195,7 +9195,7 @@ fun PermissionsSettingsSection(viewModel: AppViewModel) {
             isGranted = hasGoogleTasksPermission,
             onClick = {
                 if (!hasGoogleTasksPermission) {
-                    val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+                    val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(context)
                     if (googleAccount == null) {
                         triggerGoogleSignInForScopes(listOf(
                             com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/tasks")
@@ -9217,7 +9217,7 @@ fun PermissionsSettingsSection(viewModel: AppViewModel) {
             isGranted = hasGoogleFitPermission,
             onClick = {
                 if (!hasGoogleFitPermission) {
-                    val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+                    val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(context)
                     if (googleAccount == null) {
                         triggerGoogleSignInForScopes(listOf(
                             com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/fitness.activity.read"),
@@ -9261,7 +9261,7 @@ fun PermissionsSettingsSection(viewModel: AppViewModel) {
             isGranted = hasGoogleKeepPermission,
             onClick = {
                 if (!hasGoogleKeepPermission) {
-                    val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+                    val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(context)
                     if (googleAccount == null) {
                         triggerGoogleSignInForScopes(listOf(
                             com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.appdata")
@@ -11567,7 +11567,7 @@ fun SettingsUpdatesPage(
                                     } else {
                                         Toast.makeText(context, "Firebase Tester is already signed in!", Toast.LENGTH_SHORT).show()
                                     }
-                                } catch (e: Exception) {
+                                } catch (e: Throwable) {
                                     Toast.makeText(context, "App Distribution Error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
                                 }
                             },
@@ -13006,7 +13006,7 @@ fun PermissionOnboardingView(viewModel: AppViewModel) {
                 buttonText = if (hasDrivePermission) "Authorized" else "Authorize Sync",
                 onButtonClick = {
                     if (!hasDrivePermission) {
-                        val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+                        val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(context)
                         if (googleAccount == null) {
                             try {
                                 val driveScope = com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.appdata")

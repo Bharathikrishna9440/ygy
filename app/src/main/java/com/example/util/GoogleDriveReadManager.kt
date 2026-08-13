@@ -30,7 +30,7 @@ object GoogleDriveReadManager {
      */
     fun hasDrivePermission(context: Context): Boolean {
         return try {
-            val account = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+            val account = GmsUtils.getLastSignedInAccount(context)
             account != null && account.grantedScopes.any {
                 it.scopeUri.equals("https://www.googleapis.com/auth/drive.appdata", ignoreCase = true) ||
                 it.scopeUri.equals("https://www.googleapis.com/auth/drive.file", ignoreCase = true)
@@ -47,11 +47,12 @@ object GoogleDriveReadManager {
         context: Context,
         onAuthResolutionRequired: (Intent) -> Unit = {}
     ): String? = withContext(Dispatchers.IO) {
+        if (!GmsUtils.isGmsAvailable(context)) return@withContext null
         try {
             val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
             var email = prefs.getString("selected_file_backup_account", null)
             if (email.isNullOrBlank()) {
-                val account = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+                val account = GmsUtils.getLastSignedInAccount(context)
                 email = account?.email
             }
             if (email.isNullOrBlank()) {

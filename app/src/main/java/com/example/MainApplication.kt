@@ -8,9 +8,31 @@ class MainApplication : Application(), Configuration.Provider {
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
-            .setExecutor(Executors.newFixedThreadPool(8))
+            .setExecutor(Executors.newFixedThreadPool(minOf(4, maxOf(2, Runtime.getRuntime().availableProcessors()))))
             .setMinimumLoggingLevel(android.util.Log.INFO)
             .build()
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW || level >= TRIM_MEMORY_MODERATE || level >= TRIM_MEMORY_BACKGROUND) {
+            try {
+                coil.Coil.imageLoader(this).memoryCache?.clear()
+            } catch (_: Throwable) {}
+            try {
+                System.gc()
+            } catch (_: Throwable) {}
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        try {
+            coil.Coil.imageLoader(this).memoryCache?.clear()
+        } catch (_: Throwable) {}
+        try {
+            System.gc()
+        } catch (_: Throwable) {}
+    }
 
     override fun onCreate() {
         super.onCreate()

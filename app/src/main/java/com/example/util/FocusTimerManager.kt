@@ -180,7 +180,7 @@ object FocusTimerManager {
         val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         val currentUsername = prefs.getString("current_username", null) ?: return null
         val email = prefs.getString("user_email_${currentUsername}", null)
-        val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(appContext) } catch (e: Throwable) { null }
+        val googleAccount = GmsUtils.getLastSignedInAccount(appContext)
         val emailToUse = if (!email.isNullOrBlank()) email else googleAccount?.email
         if (emailToUse.isNullOrBlank()) {
             return com.example.api.DevicePresenceManager.sanitizeEmail(currentUsername)
@@ -666,13 +666,22 @@ object FocusTimerManager {
     fun saveActiveSessionState(context: Context) {
         val prefs = context.applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         val isRunning = isTimerRunning.value || isStopwatchActive.value
-        val baseAccumulatedToSave = if (isRunning && _lastResumeTimeMs.value != null) {
-            _lastResumeBaseAccumulatedMs
-        } else {
-            accumulatedSessionTimeMs.value
-        }
+        val currentAccumulated = accumulatedSessionTimeMs.value
         val effectiveLastResume = _lastResumeTimeMs.value ?: _currentSessionStartMs.value
-        val lastResumeToSave = if (isRunning) (effectiveLastResume ?: -1L) else -1L
+        val nowMs = StableTime.currentTimeMillis()
+
+        val baseAccumulatedToSave: Long
+        val lastResumeToSave: Long
+
+        if (isRunning && effectiveLastResume != null && effectiveLastResume > 0L && nowMs >= effectiveLastResume) {
+            baseAccumulatedToSave = currentAccumulated
+            lastResumeToSave = nowMs
+            _lastResumeBaseAccumulatedMs = currentAccumulated
+            _lastResumeTimeMs.value = nowMs
+        } else {
+            baseAccumulatedToSave = currentAccumulated
+            lastResumeToSave = if (isRunning) (effectiveLastResume ?: nowMs) else -1L
+        }
 
         prefs.edit()
             .putBoolean("timer_is_running", isTimerRunning.value)
@@ -685,7 +694,7 @@ object FocusTimerManager {
             .putBoolean("timer_was_started_from_stopwatch", wasStartedFromStopwatch.value)
             .putInt("timer_attached_task_id", attachedTask.value?.id ?: -1)
             .putString("timer_attached_tag", attachedTag.value)
-            .putLong("timer_last_active_timestamp", StableTime.currentTimeMillis())
+            .putLong("timer_last_active_timestamp", nowMs)
             .putInt("timer_seconds_left", timerSecondsLeft.value)
             .putBoolean("timer_is_tab_focus_selected", isTabFocusTimerSelected.value)
             .putBoolean("is_paused", isPaused.value)
@@ -773,16 +782,24 @@ object FocusTimerManager {
                         session.status.equals("FOCUSING", ignoreCase = true) || session.status.equals("IDLE", ignoreCase = true)
                     }
                     
+                    val savedAccumulatedInPrefs = prefs.getSafeLong("accumulated_time_ms", 0L)
+                    val effectiveAccumulated = maxOf(savedAccumulatedInPrefs, session.base_focus_time_ms)
+
                     val editor = prefs.edit()
                     editor.putBoolean("timer_is_running", (isRunning || isBreaking) && !isStopwatch)
                     editor.putBoolean("timer_is_stopwatch_active", isStopwatch && (isRunning || session.status.equals("PAUSED", ignoreCase = true)))
                     editor.putBoolean("timer_was_started_from_stopwatch", isStopwatch)
                     editor.putBoolean("timer_is_focus_phase", isFocusPhaseFromTimeline)
                     editor.putBoolean("timer_is_tab_focus_selected", !isStopwatch)
-                    editor.putLong("accumulated_time_ms", session.base_focus_time_ms)
-                    editor.putInt("timer_cumulative_seconds", (session.base_focus_time_ms / 1000).toInt())
-                    editor.putInt("saved_stopwatch_seconds", (session.base_focus_time_ms / 1000).toInt())
-                    editor.putLong("last_resume_time_ms", if (isRunning) session.last_event_ts_ms else -1L)
+                    editor.putLong("accumulated_time_ms", effectiveAccumulated)
+                    editor.putInt("timer_cumulative_seconds", (effectiveAccumulated / 1000).toInt())
+                    editor.putInt("saved_stopwatch_seconds", (effectiveAccumulated / 1000).toInt())
+                    if (isRunning && session.last_event_ts_ms > 0L) {
+                        val savedLastResume = prefs.getSafeLong("last_resume_time_ms", -1L)
+                        if (savedLastResume == -1L) {
+                            editor.putLong("last_resume_time_ms", session.last_event_ts_ms)
+                        }
+                    }
                     editor.putString("timer_attached_tag", session.tag)
                     editor.putBoolean("is_paused", session.status.equals("PAUSED", ignoreCase = true))
                     editor.commit()
@@ -1011,6 +1028,9 @@ object FocusTimerManager {
             _stopwatchBreakDurationMinutes.value = prefs.getInt("stopwatch_break_duration", 5)
             _autoStartStopwatchAfterBreak.value = prefs.getBoolean("stopwatch_autostart_after_break", true)
             
+            // Synchronously preload active session state from preferences FIRST!
+            preloadActiveSessionStateFromPrefs(context)
+
             // Recover Active Session State Dynamically
             _focusTags.value = loadFocusTags(context)
             recoverAndResumeActiveSession(context)

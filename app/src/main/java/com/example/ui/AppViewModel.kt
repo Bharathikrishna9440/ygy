@@ -2800,17 +2800,19 @@ class AppViewModel(
     }
 
     fun triggerSilentGoogleTasksSync() {
-        val prefs = getApplication<android.app.Application>().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+        val app = getApplication<android.app.Application>()
+        if (!com.example.util.GmsUtils.isGmsAvailable(app)) return
+        val prefs = app.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
         val email = prefs.getString("selected_tasks_account", null)
-        val signedInAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(getApplication()) } catch (e: Throwable) { null }
+        val signedInAccount = com.example.util.GmsUtils.getLastSignedInAccount(app)
         if (!email.isNullOrBlank() || signedInAccount != null) {
             viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    com.example.util.GoogleTasksSyncManager.syncTasks(getApplication())
+                    com.example.util.GoogleTasksSyncManager.syncTasks(app)
                 } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-                    android.util.Log.e("AppViewModel", "Silent Google Tasks sync failed", e)
+                    throw e
+                } catch (e: Throwable) {
+                    android.util.Log.e("AppViewModel", "Silent Google Tasks sync failed: ${e.message}")
                 }
             }
         }
@@ -2860,7 +2862,7 @@ class AppViewModel(
         _userName.value = prefs.getString("user_name_${username}", "") ?: ""
         _userNickname.value = prefs.getString("user_nickname_${username}", "") ?: ""
         val savedEmoji = prefs.getString("user_emoji_${username}", "👤") ?: "👤"
-        val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(getApplication()) } catch (e: Throwable) { null }
+        val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(getApplication())
         val gPhoto = googleAccount?.photoUrl?.toString() ?: ""
         _userEmoji.value = if (savedEmoji != "👤" && savedEmoji.isNotEmpty()) savedEmoji else if (gPhoto.isNotEmpty()) gPhoto else "👤"
         _userEmail.value = prefs.getString("user_email_${username}", "") ?: ""
@@ -2952,7 +2954,7 @@ class AppViewModel(
     }
 
     fun handleGoogleSignInSuccess(username: String, email: String, displayName: String, idToken: String? = null) {
-        val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(getApplication()) } catch (e: Throwable) { null }
+        val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(getApplication())
         val gmailPhotoUrl = googleAccount?.photoUrl?.toString() ?: ""
 
         prefs.edit()
@@ -2992,7 +2994,7 @@ class AppViewModel(
         val currentUsername = _currentUsername.value ?: ""
         viewModelScope.launch {
             val timestamp = System.currentTimeMillis()
-            val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(getApplication()) } catch (e: Throwable) { null }
+            val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(getApplication())
             val email = googleAccount?.email ?: prefs.getString("selected_tasks_account", null) ?: (currentUsername + "@gmail.com")
             
             _userName.value = name
@@ -3090,7 +3092,7 @@ class AppViewModel(
         var cachedEmoji = prefs.getString("user_emoji_${username}", "") ?: prefs.getString("user_emoji", "") ?: ""
         val cachedEmail = prefs.getString("user_email_${username}", "") ?: ""
 
-        val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(getApplication()) } catch (e: Throwable) { null }
+        val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(getApplication())
         val photoUrl = googleAccount?.photoUrl?.toString() ?: ""
         if ((cachedEmoji.isEmpty() || cachedEmoji == "👤") && photoUrl.isNotEmpty()) {
             cachedEmoji = photoUrl
@@ -3113,7 +3115,7 @@ class AppViewModel(
         val currentUsername = _currentUsername.value ?: ""
         viewModelScope.launch {
             val timestamp = System.currentTimeMillis()
-            val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(getApplication()) } catch (e: Throwable) { null }
+            val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(getApplication())
             val email = googleAccount?.email ?: prefs.getString("selected_tasks_account", null) ?: (currentUsername + "@gmail.com")
             
             _userName.value = name
@@ -3405,15 +3407,17 @@ class AppViewModel(
             countdownPrefs.edit().clear().apply()
         }
         
-        try {
-            com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                context,
-                com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-            ).signOut()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            android.util.Log.e("AppViewModel", "Failed to sign out of Google", e)
+        if (com.example.util.GmsUtils.isGmsAvailable(context)) {
+            try {
+                com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
+                    context,
+                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                ).signOut()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                android.util.Log.e("AppViewModel", "Failed to sign out of Google: ${e.message}")
+            }
         }
 
         navigateTo(Screen.LOGIN)
@@ -3445,15 +3449,17 @@ class AppViewModel(
             _userEmoji.value = "👤"
             _userEmail.value = ""
             
-            try {
-                com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                    context,
-                    com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                ).signOut()
-            } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-            } catch (e: Exception) {
-                android.util.Log.e("AppViewModel", "Failed to sign out of Google", e)
+            if (com.example.util.GmsUtils.isGmsAvailable(context)) {
+                try {
+                    com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
+                        context,
+                        com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                    ).signOut()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    android.util.Log.e("AppViewModel", "Failed to sign out of Google: ${e.message}")
+                }
             }
             
             onCompleted()
@@ -3518,13 +3524,15 @@ class AppViewModel(
                 _userEmoji.value = "👤"
                 _userEmail.value = ""
 
-                try {
-                    com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
-                        context,
-                        com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
-                    ).signOut()
-                } catch (e: Exception) {
-                    android.util.Log.e("AppViewModel", "Failed to sign out of Google", e)
+                if (com.example.util.GmsUtils.isGmsAvailable(context)) {
+                    try {
+                        com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(
+                            context,
+                            com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN
+                        ).signOut()
+                    } catch (e: Throwable) {
+                        android.util.Log.e("AppViewModel", "Failed to sign out of Google: ${e.message}")
+                    }
                 }
 
                 navigateTo(Screen.LOGIN)
@@ -3723,7 +3731,7 @@ class AppViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun getActiveUserEmail(): String {
-        val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(getApplication()) } catch (e: Throwable) { null }
+        val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(getApplication())
         val prefs = getApplication<android.app.Application>().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
         val savedUsername = prefs.getString("current_username", "Guest") ?: "Guest"
         val email = googleAccount?.email ?: prefs.getString("user_email_$savedUsername", "") ?: ""
@@ -10669,7 +10677,12 @@ class AppViewModel(
             while (true) {
                 kotlinx.coroutines.delay(1000)
                 try {
-                    val isLocalActiveOrPaused = FocusTimerManager.isTimerRunning.value || FocusTimerManager.isStopwatchActive.value || FocusTimerManager.isPaused.value
+                    val isLocalActiveOrPaused = FocusTimerManager.isTimerRunning.value ||
+                        FocusTimerManager.isStopwatchActive.value ||
+                        FocusTimerManager.isPaused.value ||
+                        prefs.getBoolean("timer_is_running", false) ||
+                        prefs.getBoolean("timer_is_stopwatch_active", false) ||
+                        prefs.getBoolean("is_paused", false)
                     if (!isLocalActiveOrPaused) {
                         val status = com.example.api.DynamicCommandManager.currentStatusFlow.value
                         if (status.lowercase() != "idle" && status.isNotEmpty()) {
@@ -10731,7 +10744,7 @@ class AppViewModel(
         }
 
         // Enforce Google Sign-In login session persistence
-        val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(application) } catch (e: Throwable) { null }
+        val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(application)
         val previouslyLoggedIn = prefs.getBoolean("is_logged_in", false)
         val savedUsername = prefs.getString("current_username", null)
 

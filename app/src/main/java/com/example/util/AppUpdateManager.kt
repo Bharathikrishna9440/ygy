@@ -744,13 +744,15 @@ object AppUpdateManager {
                 var appDistributionVersionCode = -1
                 try {
                     val appDist = com.google.firebase.appdistribution.FirebaseAppDistribution.getInstance()
-                    val task = appDist.checkForNewRelease()
-                    val release = com.google.android.gms.tasks.Tasks.await(task)
-                    if (release != null) {
-                        appDistributionVersionCode = release.versionCode.toInt()
-                        Log.d(TAG, "Firebase App Distribution latest release code: $appDistributionVersionCode")
+                    if (appDist.isTesterSignedIn) {
+                        val task = appDist.checkForNewRelease()
+                        val release = com.google.android.gms.tasks.Tasks.await(task)
+                        if (release != null) {
+                            appDistributionVersionCode = release.versionCode.toInt()
+                            Log.d(TAG, "Firebase App Distribution latest release code: $appDistributionVersionCode")
+                        }
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.d(TAG, "Firebase App Distribution check skipped or failed: ${e.localizedMessage}")
                 }
 

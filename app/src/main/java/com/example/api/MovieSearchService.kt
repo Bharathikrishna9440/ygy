@@ -227,34 +227,6 @@ object MovieSearchService {
             )
         }
 
-        // Default hot takes
-        val defaultHotTakes = listOf(
-            UserHotTake(
-                id = "ht_${imdbId}_1",
-                userId = "u_subash",
-                userName = "Subash",
-                avatarUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100",
-                rating = 4.5f,
-                review = "Best plot twist ever! Hands down one of my top favorites of the decade."
-            ),
-            UserHotTake(
-                id = "ht_${imdbId}_2",
-                userId = "u_priya",
-                userName = "Priya",
-                avatarUrl = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100",
-                rating = 5.0f,
-                review = "A cinematic masterpiece. The cinematography and music score gave me chills!"
-            ),
-            UserHotTake(
-                id = "ht_${imdbId}_3",
-                userId = "u_rahul",
-                userName = "Rahul",
-                avatarUrl = "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=100",
-                rating = 4.0f,
-                review = "Super intense pacing. Couldn't stop watching until the end."
-            )
-        )
-
         // Upcoming episode for running series
         val nextEpisodeData = if (type == "series") {
             NextEpisodeAiring(
@@ -283,7 +255,7 @@ object MovieSearchService {
             totalEpisodes = totalEpisodes,
             seasons = seasons,
             watchProviders = defaultProviders,
-            hotTakes = defaultHotTakes,
+            hotTakes = emptyList(),
             nextEpisode = nextEpisodeData,
             runtimeMinutes = if (type == "series") 50 else 148
         )

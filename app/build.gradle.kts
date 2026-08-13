@@ -232,7 +232,7 @@ dependencies {
   implementation(libs.firebase.analytics)
   implementation(libs.firebase.crashlytics)
   implementation(libs.firebase.messaging)
-  implementation(libs.firebase.inappmessaging.display)
+  // implementation(libs.firebase.inappmessaging.display)
   implementation(libs.firebase.perf)
   implementation(libs.firebase.auth)
   implementation(libs.firebase.appdistribution)

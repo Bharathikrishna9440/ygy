@@ -1530,7 +1530,7 @@ fun FriendsHotTakesCompose(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(
-                text = "💬 FRIENDS' HOT TAKES & QUICK RATINGS",
+                text = "💬 QUICK RATINGS & REVIEWS",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 color = GoldAccent
@@ -1602,7 +1602,7 @@ fun FriendsHotTakesCompose(
             // Hot Takes List
             if (hotTakes.isEmpty()) {
                 Text(
-                    text = "No hot takes yet. Be the first to share your thoughts!",
+                    text = "No reviews or ratings yet. Be the first to share your rating & review!",
                     fontSize = 11.sp,
                     color = TextMuted,
                     fontStyle = androidx.compose.ui.text.font.FontStyle.Italic

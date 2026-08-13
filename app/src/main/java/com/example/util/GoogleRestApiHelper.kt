@@ -37,16 +37,12 @@ object GoogleRestApiHelper {
         scopes: List<String>,
         onAuthResolutionRequired: (Intent) -> Unit = {}
     ): String? = withContext(Dispatchers.IO) {
+        if (!GmsUtils.isGmsAvailable(context)) return@withContext null
         try {
             val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
             var email = prefs.getString("selected_file_backup_account", null)
             if (email.isNullOrBlank()) {
-                val account = try {
-                    GoogleSignIn.getLastSignedInAccount(context)
-                } catch (e: Throwable) {
-                    Log.w(TAG, "Could not obtain last signed in Google account: ${e.message}")
-                    null
-                }
+                val account = GmsUtils.getLastSignedInAccount(context)
                 email = account?.email
             }
             if (email.isNullOrBlank()) {

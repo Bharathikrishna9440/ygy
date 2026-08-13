@@ -228,7 +228,7 @@ fun ContactsView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
 
     val contactsPrefs = remember { context.getSharedPreferences("app_contacts_prefs", android.content.Context.MODE_PRIVATE) }
     val isAuthorized = remember(context) {
-        val account = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+        val account = com.example.util.GmsUtils.getLastSignedInAccount(context)
         account != null && account.grantedScopes.any { it.scopeUri.equals("https://www.googleapis.com/auth/contacts", ignoreCase = true) }
     }
     var showContactsBanner by remember {
@@ -246,7 +246,7 @@ fun ContactsView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     }
 
     LaunchedEffect(Unit) {
-        val account = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+        val account = com.example.util.GmsUtils.getLastSignedInAccount(context)
         val isAuth = account != null && account.grantedScopes.any { it.scopeUri.equals("https://www.googleapis.com/auth/contacts", ignoreCase = true) }
         if (isAuth) {
             viewModel.syncGoogleContacts(context) { }

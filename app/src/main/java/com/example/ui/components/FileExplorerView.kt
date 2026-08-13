@@ -110,7 +110,7 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     var googleDriveAboutInfo by remember { mutableStateOf<org.json.JSONObject?>(null) }
 
     // Google Drive Integration State
-    val googleAccount = remember { try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null } }
+    val googleAccount = remember { com.example.util.GmsUtils.getLastSignedInAccount(context) }
     var hasPermission by remember { mutableStateOf(com.example.util.GoogleDriveSyncManager.hasDrivePermission(context)) }
     var isOperating by remember { mutableStateOf(false) }
     var syncMessage by remember { mutableStateOf<String?>(null) }

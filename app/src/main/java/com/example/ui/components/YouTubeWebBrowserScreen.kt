@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -119,6 +120,14 @@ fun YouTubeWebBrowserScreen(
         com.example.util.AppBlockHelper.isAntiTubeWebAppOpen = true
         onDispose {
             com.example.util.AppBlockHelper.isAntiTubeWebAppOpen = false
+            try {
+                webViewInstance?.stopLoading()
+                webViewInstance?.onPause()
+                webViewInstance?.pauseTimers()
+                webViewInstance?.removeAllViews()
+                webViewInstance?.destroy()
+                webViewInstance = null
+            } catch (_: Exception) {}
         }
     }
 
@@ -525,7 +534,10 @@ fun YouTubeWebBrowserScreen(
                         useWideViewPort = true
                         allowFileAccess = false
                         userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                        setRenderPriority(WebSettings.RenderPriority.HIGH)
+                        cacheMode = WebSettings.LOAD_DEFAULT
                     }
+                    setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
 
                     webViewClient = object : WebViewClient() {
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -596,6 +608,15 @@ fun YouTubeWebBrowserScreen(
             },
             update = { view ->
                 view.evaluateJavascript(antiTubeJs, null)
+            },
+            onRelease = { wv ->
+                try {
+                    wv.stopLoading()
+                    wv.onPause()
+                    wv.pauseTimers()
+                    wv.removeAllViews()
+                    wv.destroy()
+                } catch (_: Throwable) {}
             },
             modifier = Modifier.fillMaxSize()
         )

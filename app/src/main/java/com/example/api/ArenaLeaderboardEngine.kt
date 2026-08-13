@@ -689,7 +689,7 @@ object ArenaLeaderboardEngine {
         val ctx = appContext
         val myEmail = try {
             if (ctx != null) {
-                val googleAccount = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(ctx)
+                val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(ctx)
                 val prefs = ctx.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
                 val savedUsername = prefs.getString("current_username", "Guest") ?: "Guest"
                 googleAccount?.email ?: prefs.getString("user_email_$savedUsername", "") ?: "$savedUsername@gmail.com"

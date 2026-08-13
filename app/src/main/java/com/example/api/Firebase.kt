@@ -178,6 +178,10 @@ object Firebase {
 
     private fun signInAnonymouslyIfPossible(context: Context) {
         if (anonymousAuthDisabled) return
+        if (!com.example.util.GmsUtils.isGmsAvailable(context)) {
+            anonymousAuthDisabled = true
+            return
+        }
         try {
             val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
             if (auth.currentUser == null) {
@@ -187,18 +191,24 @@ object Firebase {
                     }
                     .addOnFailureListener { e ->
                         anonymousAuthDisabled = true
+                        if (e is SecurityException || e.cause is SecurityException || e.message?.contains("SecurityException") == true) {
+                            com.example.util.GmsUtils.disableGms()
+                        }
                         android.util.Log.w("FirebaseClient", "Anonymous sign-in disabled or unavailable: ${e.message}")
                     }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             anonymousAuthDisabled = true
+            if (e is SecurityException || e.cause is SecurityException || e.message?.contains("SecurityException") == true) {
+                com.example.util.GmsUtils.disableGms()
+            }
             android.util.Log.w("FirebaseClient", "FirebaseAuth sign in anonymously error: ${e.message}")
         }
     }
 
     suspend fun ensureAuthenticated(context: Context) = withContext(Dispatchers.IO) {
         ensureFirebaseInitialized(context)
-        if (anonymousAuthDisabled) return@withContext
+        if (anonymousAuthDisabled || !com.example.util.GmsUtils.isGmsAvailable(context)) return@withContext
         try {
             val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
             if (auth.currentUser == null) {
@@ -208,8 +218,11 @@ object Firebase {
             } else {
                 android.util.Log.d("FirebaseClient", "Already authenticated with UID: ${auth.currentUser?.uid}")
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             anonymousAuthDisabled = true
+            if (e is SecurityException || e.cause is SecurityException || e.message?.contains("SecurityException") == true) {
+                com.example.util.GmsUtils.disableGms()
+            }
             android.util.Log.w("FirebaseClient", "Anonymous sign-in unavailable or restricted: ${e.message}")
         }
     }

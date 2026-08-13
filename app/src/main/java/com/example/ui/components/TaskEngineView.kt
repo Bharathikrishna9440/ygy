@@ -573,7 +573,7 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
 
                     IconButton(
                         onClick = {
-                            val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+                            val googleAccount = com.example.util.GmsUtils.getLastSignedInAccount(context)
                             if (googleAccount == null) {
                                 try {
                                     val taskScope = com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/tasks")
@@ -5724,7 +5724,7 @@ fun CalendarView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
             if (granted) {
                 viewModel.syncGoogleCalendar(context)
             }
-            val account = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+            val account = com.example.util.GmsUtils.getLastSignedInAccount(context)
             val hasTasksScope = account != null && try { account.grantedScopes.any { it.scopeUri.equals("https://www.googleapis.com/auth/tasks", ignoreCase = true) } } catch (e: Throwable) { false }
             if (!hasTasksScope) {
                 coroutineScope.launch {
@@ -5741,7 +5741,7 @@ fun CalendarView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         mutableStateOf(
             !calPrefs.getBoolean("gcal_connect_banner_dismissed", false) &&
             (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED ||
-             (try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null })?.let { account ->
+             com.example.util.GmsUtils.getLastSignedInAccount(context)?.let { account ->
                  try { !account.grantedScopes.any { it.scopeUri.equals("https://www.googleapis.com/auth/tasks", ignoreCase = true) } } catch (e: Throwable) { true }
              } ?: true)
         )
@@ -6006,7 +6006,7 @@ fun CalendarView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
             if (hasRead && hasWrite) {
                 viewModel.syncGoogleCalendar(context)
             }
-            val account = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+            val account = com.example.util.GmsUtils.getLastSignedInAccount(context)
             val hasTasksScope = account != null && try { account.grantedScopes.any { it.scopeUri.equals("https://www.googleapis.com/auth/tasks", ignoreCase = true) } } catch (e: Throwable) { false }
             if (hasTasksScope) {
                 viewModel.syncGoogleTasks(context) { }

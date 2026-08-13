@@ -686,6 +686,10 @@ object DynamicCommandManager {
         val isLocalTimerRunning = com.example.util.FocusTimerManager.isTimerRunning.value
         val isLocalStopwatchActive = com.example.util.FocusTimerManager.isStopwatchActive.value
         val isLocalPaused = com.example.util.FocusTimerManager.isPaused.value
+        val prefsHasActive = prefs.getBoolean("timer_is_running", false) ||
+            prefs.getBoolean("timer_is_stopwatch_active", false) ||
+            prefs.getBoolean("is_paused", false)
+        val hasLocalActive = isLocalTimerRunning || isLocalStopwatchActive || isLocalPaused || prefsHasActive
 
         val cleanStatusStr = statusStr.lowercase().trim()
         val lastEventName = timeline.lastOrNull()?.event?.lowercase()?.trim() ?: ""
@@ -700,7 +704,7 @@ object DynamicCommandManager {
             lastEventName == "completed" ||
             lastEventName == "session_end"
 
-        if (isLocalCommander && (isLocalTimerRunning || isLocalStopwatchActive || isLocalPaused)) {
+        if (isLocalCommander && hasLocalActive) {
             Log.d(TAG, "calibrateLocalState: Local device is commander and active/paused. Skipping calibration to preserve active local session.")
             return
         }
@@ -839,11 +843,13 @@ object DynamicCommandManager {
                         }
                     }
                     "idle" -> {
-                        if (com.example.util.FocusTimerManager.isTimerRunning.value ||
-                            com.example.util.FocusTimerManager.isStopwatchActive.value ||
-                            com.example.util.FocusTimerManager.isPaused.value) {
-                            com.example.util.FocusTimerManager.resetStopwatch(context, saveSession = false)
-                            com.example.util.FocusTimerManager.resetTimer(context, saveSession = false)
+                        if (!hasLocalActive) {
+                            if (com.example.util.FocusTimerManager.isTimerRunning.value ||
+                                com.example.util.FocusTimerManager.isStopwatchActive.value ||
+                                com.example.util.FocusTimerManager.isPaused.value) {
+                                com.example.util.FocusTimerManager.resetStopwatch(context, saveSession = false)
+                                com.example.util.FocusTimerManager.resetTimer(context, saveSession = false)
+                            }
                         }
                         val email = activeEmail
                         if (email.isNotEmpty()) {
@@ -923,11 +929,13 @@ object DynamicCommandManager {
                         }
                     }
                     "idle" -> {
-                        if (com.example.util.FocusTimerManager.isTimerRunning.value ||
-                            com.example.util.FocusTimerManager.isStopwatchActive.value ||
-                            com.example.util.FocusTimerManager.isPaused.value) {
-                            com.example.util.FocusTimerManager.resetTimer(context, saveSession = false)
-                            com.example.util.FocusTimerManager.resetStopwatch(context, saveSession = false)
+                        if (!hasLocalActive) {
+                            if (com.example.util.FocusTimerManager.isTimerRunning.value ||
+                                com.example.util.FocusTimerManager.isStopwatchActive.value ||
+                                com.example.util.FocusTimerManager.isPaused.value) {
+                                com.example.util.FocusTimerManager.resetTimer(context, saveSession = false)
+                                com.example.util.FocusTimerManager.resetStopwatch(context, saveSession = false)
+                            }
                         }
                         val email = activeEmail
                         if (email.isNotEmpty()) {

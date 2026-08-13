@@ -52,11 +52,12 @@ object GoogleTasksSyncManager {
         context: Context,
         onAuthResolutionRequired: (Intent) -> Unit = {}
     ): String? = withContext(Dispatchers.IO) {
+        if (!GmsUtils.isGmsAvailable(context)) return@withContext null
         try {
             val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
             var email = prefs.getString("selected_tasks_account", null)
             if (email.isNullOrBlank()) {
-                val account = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
+                val account = GmsUtils.getLastSignedInAccount(context)
                 email = account?.email
             }
             if (email.isNullOrBlank()) {

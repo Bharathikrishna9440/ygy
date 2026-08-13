@@ -170,13 +170,23 @@ object DevicePresenceManager {
                 }
             }
 
-            try {
-                com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { fcmTask ->
-                    val fcmToken = if (fcmTask.isSuccessful) fcmTask.result ?: "null_token" else "null_or_failed"
-                    updatePresenceWithToken(fcmToken)
+            if (com.example.util.GmsUtils.isGmsAvailable(context)) {
+                try {
+                    com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { fcmTask ->
+                        if (!fcmTask.isSuccessful && (fcmTask.exception is SecurityException || fcmTask.exception?.cause is SecurityException)) {
+                            com.example.util.GmsUtils.disableGms()
+                        }
+                        val fcmToken = if (fcmTask.isSuccessful) fcmTask.result ?: "null_token" else "null_or_failed"
+                        updatePresenceWithToken(fcmToken)
+                    }
+                } catch (e: Throwable) {
+                    if (e is SecurityException || e.cause is SecurityException) {
+                        com.example.util.GmsUtils.disableGms()
+                    }
+                    Log.w(TAG, "FCM messaging token fetch unavailable: ${e.message}")
+                    updatePresenceWithToken("null_or_failed")
                 }
-            } catch (e: Throwable) {
-                Log.w(TAG, "FCM messaging token fetch unavailable: ${e.message}")
+            } else {
                 updatePresenceWithToken("null_or_failed")
             }
 
