@@ -146,6 +146,11 @@ class TaskReminderReceiver : BroadcastReceiver() {
 
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+        val actionType = intent.getStringExtra("ACTION_TYPE") ?: ""
+        val actionContactName = intent.getStringExtra("ACTION_CONTACT_NAME") ?: ""
+        val actionContactPhone = intent.getStringExtra("ACTION_CONTACT_PHONE") ?: ""
+        val actionMessage = intent.getStringExtra("ACTION_MESSAGE") ?: ""
+
         // 1. Setup the full screen activity intent for all priorities (including NONE, LOW, MEDIUM, HIGH)
         val fullScreenIntent = Intent(context, ReminderActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -154,6 +159,10 @@ class TaskReminderReceiver : BroadcastReceiver() {
             putExtra("TASK_TITLE", taskTitle)
             putExtra("TASK_TIME", taskTime)
             putExtra("TASK_PRIORITY", taskPriority)
+            putExtra("ACTION_TYPE", actionType)
+            putExtra("ACTION_CONTACT_NAME", actionContactName)
+            putExtra("ACTION_CONTACT_PHONE", actionContactPhone)
+            putExtra("ACTION_MESSAGE", actionMessage)
         }
 
         // 2. High-importance channel configuration

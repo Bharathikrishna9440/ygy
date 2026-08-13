@@ -25,7 +25,11 @@ data class Task(
     val nagIntervalMinutes: Int = 5,
     val priority: String = "MEDIUM", // "HIGH", "MEDIUM", "LOW"
     val dueDateString: String = "", // "YYYY-MM-DD" style execution date target
-    val orderIndex: Int = 0
+    val orderIndex: Int = 0,
+    val actionType: String = "", // "CALL", "SMS", "WHATSAPP", or ""
+    val actionContactName: String = "",
+    val actionContactPhone: String = "",
+    val actionMessage: String = ""
 )
 
 @Entity(tableName = "habits")
@@ -933,6 +937,56 @@ val MIGRATION_30_31 = object : Migration(30, 31) {
     }
 }
 
+val MIGRATION_31_32 = object : Migration(31, 32) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        try {
+            database.execSQL("ALTER TABLE `tasks` ADD COLUMN `actionType` TEXT NOT NULL DEFAULT ''")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            database.execSQL("ALTER TABLE `tasks` ADD COLUMN `actionContactName` TEXT NOT NULL DEFAULT ''")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            database.execSQL("ALTER TABLE `tasks` ADD COLUMN `actionContactPhone` TEXT NOT NULL DEFAULT ''")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            database.execSQL("ALTER TABLE `tasks` ADD COLUMN `actionMessage` TEXT NOT NULL DEFAULT ''")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+}
+
+val MIGRATION_32_33 = object : Migration(32, 33) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        try {
+            database.execSQL("ALTER TABLE `tasks` ADD COLUMN `actionType` TEXT NOT NULL DEFAULT ''")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            database.execSQL("ALTER TABLE `tasks` ADD COLUMN `actionContactName` TEXT NOT NULL DEFAULT ''")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            database.execSQL("ALTER TABLE `tasks` ADD COLUMN `actionContactPhone` TEXT NOT NULL DEFAULT ''")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            database.execSQL("ALTER TABLE `tasks` ADD COLUMN `actionMessage` TEXT NOT NULL DEFAULT ''")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+}
+
 val autoMigrations = (13..19).map { startVersion ->
     object : Migration(startVersion, 20) {
         override fun migrate(database: SupportSQLiteDatabase) {
@@ -973,7 +1027,7 @@ val autoMigrations = (13..19).map { startVersion ->
         SyllabusCompletionVault::class,
         com.example.model.ChatMessage::class
     ],
-    version = 31,
+    version = 33,
     exportSchema = true
 )
 @TypeConverters(TimelineConverters::class)
@@ -1019,7 +1073,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_12_13, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23,
                         MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27,
-                        MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, *autoMigrations
+                        MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, *autoMigrations
                     )
                     .build()
                     INSTANCE = instance

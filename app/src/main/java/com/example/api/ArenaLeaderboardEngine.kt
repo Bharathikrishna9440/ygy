@@ -50,6 +50,8 @@ object ArenaLeaderboardEngine {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var peerStatesCollectJob: Job? = null
+    private var computeJob: Job? = null
+    @Volatile private var lastLocalStatsRefreshMs: Long = 0L
 
     // Temporary storage for individual peer raw weekly stats
     private val rawWeeklyStatsMap = java.util.concurrent.ConcurrentHashMap<String, PeerWeeklyRawStats>()
@@ -521,111 +523,115 @@ object ArenaLeaderboardEngine {
     }
 
     private fun computeAndEmitLeaderboard(myEmail: String) {
-        val rawList = ArrayList(rawWeeklyStatsMap.values)
-            .filter {
-                it.displayName.lowercase() != "guest" &&
-                !it.email.lowercase().contains("guest")
+        computeJob?.cancel()
+        computeJob = scope.launch(Dispatchers.Default) {
+            val rawList = ArrayList(rawWeeklyStatsMap.values)
+                .filter {
+                    it.displayName.lowercase() != "guest" &&
+                    !it.email.lowercase().contains("guest")
+                }
+                .sortedByDescending { it.totalFocusMs }
+                .distinctBy { it.displayName.lowercase().trim() }
+                .toList()
+            if (rawList.isEmpty()) {
+                _leaderboardFlow.value = emptyList()
+                return@launch
             }
-            .sortedByDescending { it.totalFocusMs }
-            .distinctBy { it.displayName.lowercase().trim() }
-            .toList()
-        if (rawList.isEmpty()) {
-            _leaderboardFlow.value = emptyList()
-            return
-        }
 
-        val nowMs = System.currentTimeMillis()
-        // Calculate XP and create ArenaRankModel
-        val rankModels = rawList.map { raw ->
-            val liveState = com.example.api.PeerLiveSphereManager.peerLiveStates.value[raw.email]
-            
-            val isUpdatedToday = isUpdatedToday(raw.lastUpdated, nowMs)
-            val isMe = raw.email.lowercase().trim() == myEmail.lowercase().trim()
-
-            val baseTodayMs = if (isMe) {
-                val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-                val completedTodaySecs = com.example.util.FocusTimerManager.focusRecords.value.sumOf { com.example.util.FocusTimerManager.getOverlapSecondsForDate(it, todayStr) }
-                val pendingSecs = com.example.util.FocusTimerManager.pendingFocusReview.value?.let { com.example.util.FocusTimerManager.getOverlapSecondsForDate(it, todayStr) } ?: 0
-                (completedTodaySecs + pendingSecs) * 1000L
-            } else {
-                raw.rawTodayFocusMs
-            }
-            val localActiveMs = if (isMe) {
-                val isTimerRunning = com.example.util.FocusTimerManager.isTimerRunning.value
-                val isStopwatchActive = com.example.util.FocusTimerManager.isStopwatchActive.value
-                val isPaused = com.example.util.FocusTimerManager.isPaused.value
-                val accum = com.example.util.FocusTimerManager.accumulatedSessionTimeMs.value
-                val chunk = com.example.util.FocusTimerManager.getCurrentChunkMs()
-                if ((isTimerRunning || isStopwatchActive || isPaused) && com.example.util.FocusTimerManager.pendingFocusReview.value == null) {
-                    accum + chunk
-                } else 0L
-            } else 0L
-
-            val statusClean = liveState?.status?.lowercase()?.trim() ?: ""
-            val isLiveFocusingStatus = statusClean.contains("focus") || statusClean.contains("run") || statusClean.contains("study") || statusClean.contains("work")
-            val remoteActiveMs = if (liveState != null && isLiveFocusingStatus) {
-                com.example.api.TimelineSyncEngine.calculateAccumulatedFocusMs(liveState.timeline, liveState.status)
-            } else 0L
-
-            val activeSessionFocusMs = maxOf(localActiveMs, remoteActiveMs)
-            val todayTotalLiveMs = baseTodayMs + maxOf(0L, activeSessionFocusMs)
-
-            if (isMe && appContext != null) {
+            val nowMs = System.currentTimeMillis()
+            if (appContext != null && myEmail.isNotBlank() && (nowMs - lastLocalStatsRefreshMs > 60_000L)) {
+                lastLocalStatsRefreshMs = nowMs
                 refreshMyLocalStats(appContext!!, myEmail)
             }
 
-            val effectivePast7Ms = if (isMe) maxOf(raw.past7DaysFocusMs, myCachedPast7Ms) else raw.past7DaysFocusMs
-            val effectivePast30Ms = if (isMe) maxOf(raw.past30DaysFocusMs, myCachedPast30Ms) else raw.past30DaysFocusMs
-            val effectiveAllTimeMs = if (isMe) maxOf(raw.allTimeFocusMs, myCachedAllTimeMs) else raw.allTimeFocusMs
+            // Calculate XP and create ArenaRankModel
+            val rankModels = rawList.map { raw ->
+                val liveState = com.example.api.PeerLiveSphereManager.peerLiveStates.value[raw.email]
+                
+                val isUpdatedToday = isUpdatedToday(raw.lastUpdated, nowMs)
+                val isMe = raw.email.lowercase().trim() == myEmail.lowercase().trim()
 
-            val totalFocusMs = when (activePeriod) {
-                "TODAY" -> todayTotalLiveMs
-                "PAST_7_DAYS" -> effectivePast7Ms + maxOf(0L, activeSessionFocusMs)
-                "PAST_30_DAYS" -> effectivePast30Ms + maxOf(0L, activeSessionFocusMs)
-                else -> effectiveAllTimeMs + maxOf(0L, activeSessionFocusMs)
-            }
-
-            val (decayedStreak, decayedXp) = if (raw.email == myEmail) {
-                Pair(raw.activeStreak, raw.xpScore)
-            } else {
-                if (raw.lastUpdated > 0L) {
-                    getDecayedStreakAndXp(raw.lastUpdated, raw.activeStreak, raw.xpScore, raw.unconsumedShieldsCount)
+                val baseTodayMs = if (isMe) {
+                    val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(nowMs))
+                    val completedTodaySecs = com.example.util.FocusTimerManager.focusRecords.value.sumOf { com.example.util.FocusTimerManager.getOverlapSecondsForDate(it, todayStr) }
+                    val pendingSecs = com.example.util.FocusTimerManager.pendingFocusReview.value?.let { com.example.util.FocusTimerManager.getOverlapSecondsForDate(it, todayStr) } ?: 0
+                    (completedTodaySecs + pendingSecs) * 1000L
                 } else {
-                    Pair(raw.activeStreak, raw.xpScore)
+                    raw.rawTodayFocusMs
                 }
+                val localActiveMs = if (isMe) {
+                    val isTimerRunning = com.example.util.FocusTimerManager.isTimerRunning.value
+                    val isStopwatchActive = com.example.util.FocusTimerManager.isStopwatchActive.value
+                    val isPaused = com.example.util.FocusTimerManager.isPaused.value
+                    val accum = com.example.util.FocusTimerManager.accumulatedSessionTimeMs.value
+                    val chunk = com.example.util.FocusTimerManager.getCurrentChunkMs()
+                    if ((isTimerRunning || isStopwatchActive || isPaused) && com.example.util.FocusTimerManager.pendingFocusReview.value == null) {
+                        accum + chunk
+                    } else 0L
+                } else 0L
+
+                val statusClean = liveState?.status?.lowercase()?.trim() ?: ""
+                val isLiveFocusingStatus = statusClean.contains("focus") || statusClean.contains("run") || statusClean.contains("study") || statusClean.contains("work")
+                val remoteActiveMs = if (liveState != null && isLiveFocusingStatus) {
+                    com.example.api.TimelineSyncEngine.calculateAccumulatedFocusMs(liveState.timeline, liveState.status)
+                } else 0L
+
+                val activeSessionFocusMs = maxOf(localActiveMs, remoteActiveMs)
+                val todayTotalLiveMs = baseTodayMs + maxOf(0L, activeSessionFocusMs)
+
+                val effectivePast7Ms = if (isMe) maxOf(raw.past7DaysFocusMs, myCachedPast7Ms) else raw.past7DaysFocusMs
+                val effectivePast30Ms = if (isMe) maxOf(raw.past30DaysFocusMs, myCachedPast30Ms) else raw.past30DaysFocusMs
+                val effectiveAllTimeMs = if (isMe) maxOf(raw.allTimeFocusMs, myCachedAllTimeMs) else raw.allTimeFocusMs
+
+                val totalFocusMs = when (activePeriod) {
+                    "TODAY" -> todayTotalLiveMs
+                    "PAST_7_DAYS" -> effectivePast7Ms + maxOf(0L, activeSessionFocusMs)
+                    "PAST_30_DAYS" -> effectivePast30Ms + maxOf(0L, activeSessionFocusMs)
+                    else -> effectiveAllTimeMs + maxOf(0L, activeSessionFocusMs)
+                }
+
+                val (decayedStreak, decayedXp) = if (raw.email == myEmail) {
+                    Pair(raw.activeStreak, raw.xpScore)
+                } else {
+                    if (raw.lastUpdated > 0L) {
+                        getDecayedStreakAndXp(raw.lastUpdated, raw.activeStreak, raw.xpScore, raw.unconsumedShieldsCount)
+                    } else {
+                        Pair(raw.activeStreak, raw.xpScore)
+                    }
+                }
+
+                val xpScore = if (raw.email == myEmail) {
+                    calculateXp(effectiveAllTimeMs, raw.activeStreak)
+                } else {
+                    calculateXp(raw.allTimeFocusMs, decayedStreak)
+                }
+
+                ArenaRankModel(
+                    email = raw.email,
+                    displayName = raw.displayName,
+                    totalFocusMs = totalFocusMs,
+                    activeStreak = decayedStreak,
+                    xpScore = xpScore,
+                    topSubject = raw.topSubject,
+                    isMe = (raw.email == myEmail),
+                    customEmoji = raw.customEmoji,
+                    todayFocusMs = todayTotalLiveMs
+                )
             }
 
-            val xpScore = if (raw.email == myEmail) {
-                calculateXp(effectiveAllTimeMs, raw.activeStreak)
-            } else {
-                calculateXp(raw.allTimeFocusMs, decayedStreak)
-            }
-
-            ArenaRankModel(
-                email = raw.email,
-                displayName = raw.displayName,
-                totalFocusMs = totalFocusMs,
-                activeStreak = decayedStreak,
-                xpScore = xpScore,
-                topSubject = raw.topSubject,
-                isMe = (raw.email == myEmail),
-                customEmoji = raw.customEmoji,
-                todayFocusMs = todayTotalLiveMs
+            // Sort descending by totalFocusMs, fallback to XP
+            val sortedList = rankModels.sortedWith(
+                compareByDescending<ArenaRankModel> { it.totalFocusMs }
+                    .thenByDescending { it.xpScore }
             )
+
+            // Assign ranks (1-indexed)
+            val finalRankedList = sortedList.mapIndexed { index, model ->
+                model.copy(rank = index + 1)
+            }
+
+            _leaderboardFlow.value = finalRankedList
         }
-
-        // Sort descending by totalFocusMs, fallback to XP
-        val sortedList = rankModels.sortedWith(
-            compareByDescending<ArenaRankModel> { it.totalFocusMs }
-                .thenByDescending { it.xpScore }
-        )
-
-        // Assign ranks (1-indexed)
-        val finalRankedList = sortedList.mapIndexed { index, model ->
-            model.copy(rank = index + 1)
-        }
-
-        _leaderboardFlow.value = finalRankedList
     }
 
     fun recomputeLeaderboard(myEmail: String) {
@@ -690,7 +696,7 @@ object ArenaLeaderboardEngine {
             } else {
                 ""
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             ""
         }
 

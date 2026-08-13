@@ -44,14 +44,12 @@ class TimerAlertReceiver : BroadcastReceiver() {
                 return
             }
 
-            val isLeader = kotlinx.coroutines.runBlocking {
-                try {
-                    val db = com.example.data.AppDatabase.getInstance(context.applicationContext)
-                    val session = db.localActiveSessionDao().getActiveSession()
-                    session == null || session.is_current_leader == 1
-                } catch (e: Exception) {
-                    true
-                }
+            val isLeader = try {
+                val db = com.example.data.AppDatabase.getInstance(context.applicationContext)
+                val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                prefs.getBoolean("is_current_leader", true)
+            } catch (e: Exception) {
+                true
             }
 
             if (isLeader) {

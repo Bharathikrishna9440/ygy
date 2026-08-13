@@ -16,7 +16,7 @@ class TimerStopwatchWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
-        WidgetUpdater.updateStopwatchWidget(context)
+        WidgetManager.updateStopwatchWidget(context)
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -26,7 +26,7 @@ class TimerStopwatchWidgetProvider : AppWidgetProvider() {
         newOptions: Bundle?
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        WidgetUpdater.updateStopwatchWidget(context)
+        WidgetManager.updateStopwatchWidget(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -53,21 +53,21 @@ class TimerStopwatchWidgetProvider : AppWidgetProvider() {
                         FocusTimerManager.startStopwatch(context, isResuming = isPausedOrMidSession)
                     }
                 }
-                WidgetUpdater.updateAllWidgets(context)
+                WidgetManager.updateAllWidgets(context)
             }
             "com.example.widget.ACTION_STOPWATCH_BREAK" -> {
                 FocusTimerManager.takeBreakFromStopwatch(context)
-                WidgetUpdater.updateAllWidgets(context)
+                WidgetManager.updateAllWidgets(context)
             }
             "com.example.widget.ACTION_STOPWATCH_RESET" -> {
                 FocusTimerManager.resetStopwatch(context, saveSession = true)
-                WidgetUpdater.updateAllWidgets(context)
+                WidgetManager.updateAllWidgets(context)
             }
             Intent.ACTION_TIME_TICK,
             Intent.ACTION_DATE_CHANGED,
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED -> {
-                WidgetUpdater.updateStopwatchWidget(context, isPartialUpdate = true)
+                WidgetManager.updateStopwatchWidget(context, isPartialUpdate = true)
             }
         }
     }

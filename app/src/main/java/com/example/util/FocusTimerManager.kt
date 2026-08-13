@@ -758,8 +758,8 @@ object FocusTimerManager {
         val appContext = context.applicationContext
         val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         
-        try {
-            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+        scope.launch(Dispatchers.IO) {
+            try {
                 val db = com.example.data.AppDatabase.getInstance(appContext)
                 val session = db.localActiveSessionDao().getActiveSession()
                 if (session != null && !session.status.equals("IDLE", ignoreCase = true)) {
@@ -774,8 +774,8 @@ object FocusTimerManager {
                     }
                     
                     val editor = prefs.edit()
-                    editor.putBoolean("timer_is_running", isRunning || isBreaking)
-                    editor.putBoolean("timer_is_stopwatch_active", isStopwatch && isRunning)
+                    editor.putBoolean("timer_is_running", (isRunning || isBreaking) && !isStopwatch)
+                    editor.putBoolean("timer_is_stopwatch_active", isStopwatch && (isRunning || session.status.equals("PAUSED", ignoreCase = true)))
                     editor.putBoolean("timer_was_started_from_stopwatch", isStopwatch)
                     editor.putBoolean("timer_is_focus_phase", isFocusPhaseFromTimeline)
                     editor.putBoolean("timer_is_tab_focus_selected", !isStopwatch)
@@ -784,153 +784,152 @@ object FocusTimerManager {
                     editor.putInt("saved_stopwatch_seconds", (session.base_focus_time_ms / 1000).toInt())
                     editor.putLong("last_resume_time_ms", if (isRunning) session.last_event_ts_ms else -1L)
                     editor.putString("timer_attached_tag", session.tag)
-                    editor.putBoolean("is_paused", session.status == "PAUSED")
-                    editor.apply()
+                    editor.putBoolean("is_paused", session.status.equals("PAUSED", ignoreCase = true))
+                    editor.commit()
                     Log.d("FocusTimerManager", "recoverAndResumeActiveSession: Synchronized SharedPreferences with local_active_session DB: id=${session.session_id}, status=${session.status}, baseFocusTimeMs=${session.base_focus_time_ms}")
-                } else {
-                    val prefsIsRunning = prefs.getBoolean("timer_is_running", false)
-                    val prefsIsStopwatch = prefs.getBoolean("timer_is_stopwatch_active", false)
-                    val prefsIsPaused = prefs.getBoolean("is_paused", false)
-                    if (!prefsIsRunning && !prefsIsStopwatch && !prefsIsPaused) {
-                        val editor = prefs.edit()
-                        editor.putBoolean("timer_is_running", false)
-                        editor.putBoolean("timer_is_stopwatch_active", false)
-                        editor.putBoolean("timer_was_started_from_stopwatch", false)
-                        editor.putLong("accumulated_time_ms", 0L)
-                        editor.putLong("last_resume_time_ms", -1L)
-                        editor.putLong("timer_session_start_ms", -1L)
-                        editor.putInt("timer_cumulative_seconds", 0)
-                        editor.putBoolean("is_paused", false)
-                        editor.putInt("saved_stopwatch_seconds", 0)
-                        editor.apply()
-                    }
+                }
+            } catch (e: Exception) {
+                Log.e("FocusTimerManager", "Error synchronizing SharedPreferences with local_active_session in recoverAndResumeActiveSession", e)
+            }
+
+            val savedIsRunning = prefs.getBoolean("timer_is_running", false)
+            val savedIsFocusPhase = prefs.getBoolean("timer_is_focus_phase", true)
+            val savedIsStopwatchActive = prefs.getBoolean("timer_is_stopwatch_active", false)
+            val savedWasStartedFromStopwatch = prefs.getBoolean("timer_was_started_from_stopwatch", false)
+            val savedIsPaused = prefs.getBoolean("is_paused", false)
+            
+            _isPaused.value = savedIsPaused
+            savedStopwatchSeconds = prefs.getInt("saved_stopwatch_seconds", 0)
+            val savedAttachedTaskId = prefs.getInt("timer_attached_task_id", -1)
+            _attachedTag.value = prefs.getString("timer_attached_tag", "") ?: ""
+            val savedIsTabFocusTimerSelected = prefs.getBoolean("timer_is_tab_focus_selected", true)
+            _isTabFocusTimerSelected.value = savedIsTabFocusTimerSelected
+            
+            val savedAccumulated = if (!savedIsRunning && !savedIsStopwatchActive && !savedIsPaused) 0L else prefs.getSafeLong("accumulated_time_ms", 0L)
+            val savedLastResume = prefs.getSafeLong("last_resume_time_ms", -1L)
+            val savedSessionStart = prefs.getSafeLong("timer_session_start_ms", -1L)
+            val savedLastActiveTimestamp = prefs.getSafeLong("timer_last_active_timestamp", -1L)
+            
+            _accumulatedSessionTimeMs.value = savedAccumulated
+            val restoredSecs = (savedAccumulated / 1000).toInt()
+            if (restoredSecs > 0) {
+                if (_cumulativeSessionFocusSeconds.value < restoredSecs) {
+                    _cumulativeSessionFocusSeconds.value = restoredSecs
+                }
+                if (_stopwatchSeconds.value < restoredSecs) {
+                    _stopwatchSeconds.value = restoredSecs
                 }
             }
-        } catch (e: Exception) {
-            Log.e("FocusTimerManager", "Error synchronizing SharedPreferences with local_active_session in recoverAndResumeActiveSession", e)
-        }
-        
-        val savedIsRunning = prefs.getBoolean("timer_is_running", false)
-        val savedIsFocusPhase = prefs.getBoolean("timer_is_focus_phase", true)
-        val savedIsStopwatchActive = prefs.getBoolean("timer_is_stopwatch_active", false)
-        val savedWasStartedFromStopwatch = prefs.getBoolean("timer_was_started_from_stopwatch", false)
-        val savedIsPaused = prefs.getBoolean("is_paused", false)
-        _isPaused.value = savedIsPaused
-        savedStopwatchSeconds = prefs.getInt("saved_stopwatch_seconds", 0)
-        val savedAttachedTaskId = prefs.getInt("timer_attached_task_id", -1)
-        _attachedTag.value = prefs.getString("timer_attached_tag", "") ?: ""
-        val savedIsTabFocusTimerSelected = prefs.getBoolean("timer_is_tab_focus_selected", true)
-        _isTabFocusTimerSelected.value = savedIsTabFocusTimerSelected
-        
-        val savedAccumulated = if (!savedIsRunning && !savedIsStopwatchActive && !savedIsPaused) 0L else prefs.getSafeLong("accumulated_time_ms", 0L)
-        val savedLastResume = prefs.getSafeLong("last_resume_time_ms", -1L)
-        val savedSessionStart = prefs.getSafeLong("timer_session_start_ms", -1L)
-        val savedLastActiveTimestamp = prefs.getSafeLong("timer_last_active_timestamp", -1L)
-        
-        _accumulatedSessionTimeMs.value = savedAccumulated
-        val restoredSecs = (savedAccumulated / 1000).toInt()
-        if (restoredSecs > 0) {
-            if (_cumulativeSessionFocusSeconds.value < restoredSecs) {
-                _cumulativeSessionFocusSeconds.value = restoredSecs
-            }
-            if (_stopwatchSeconds.value < restoredSecs) {
-                _stopwatchSeconds.value = restoredSecs
-            }
-        }
-        setLastResumeTimeMs(if (savedLastResume != -1L) savedLastResume else null)
-        _currentSessionStartMs.value = if (savedSessionStart != -1L) savedSessionStart else null
-        
-        _isFocusPhase.value = savedIsFocusPhase
-        _wasStartedFromStopwatch.value = savedWasStartedFromStopwatch
-        
-        val effectiveResume = if (savedLastResume != -1L) savedLastResume else savedSessionStart
+            setLastResumeTimeMs(if (savedLastResume != -1L) savedLastResume else null)
+            _currentSessionStartMs.value = if (savedSessionStart != -1L) savedSessionStart else null
+            
+            _isFocusPhase.value = savedIsFocusPhase
+            _wasStartedFromStopwatch.value = savedWasStartedFromStopwatch
+            
+            val effectiveResume = if (savedLastResume != -1L) savedLastResume else savedSessionStart
 
-        if (savedIsRunning) {
-            if (savedIsFocusPhase) {
-                // Pomodoro Focus Phase Recovery
-                if (effectiveResume != -1L) {
-                    val elapsedBackgroundMs = maxOf(0L, StableTime.currentTimeMillis() - effectiveResume)
-                    val totalElapsedMs = savedAccumulated + elapsedBackgroundMs
-                    val totalDurationMs = _timerDurationMinutes.value * 60 * 1000L
+            if (savedIsRunning) {
+                if (savedIsFocusPhase) {
+                    // Pomodoro Focus Phase Recovery
+                    if (effectiveResume != -1L) {
+                        val elapsedBackgroundMs = maxOf(0L, StableTime.currentTimeMillis() - effectiveResume)
+                        val totalElapsedMs = savedAccumulated + elapsedBackgroundMs
+                        val totalDurationMs = _timerDurationMinutes.value * 60 * 1000L
+                        
+                        if (totalElapsedMs >= totalDurationMs) {
+                            // Completed in background
+                            _accumulatedSessionTimeMs.value = totalDurationMs
+                            _timerSecondsLeft.value = 0
+                            _isTimerRunning.value = false
+                            withContext(Dispatchers.Main) {
+                                handlePhaseCompletion(appContext, completedFocusPhase = true)
+                            }
+                        } else {
+                            // Still running
+                            _accumulatedSessionTimeMs.value = totalElapsedMs
+                            _timerSecondsLeft.value = ((totalDurationMs - totalElapsedMs) / 1000).toInt()
+                            _isTimerRunning.value = false
+                            setLastResumeTimeMs(effectiveResume)
+                            withContext(Dispatchers.Main) {
+                                startTimer(appContext, stopActiveAlarm = false, isResuming = true)
+                            }
+                        }
+                    } else {
+                        _isTimerRunning.value = false
+                        withContext(Dispatchers.Main) {
+                            startTimer(appContext, stopActiveAlarm = false, isResuming = true)
+                        }
+                    }
+                } else {
+                    // Pomodoro Break Phase Recovery
+                    val savedSecondsLeft = prefs.getInt("timer_seconds_left", -1)
+                    val elapsedSeconds = if (savedLastActiveTimestamp != -1L) {
+                        ((StableTime.currentTimeMillis() - savedLastActiveTimestamp) / 1000).toInt()
+                    } else {
+                        0
+                    }
+                    val actualSecondsLeft = if (savedSecondsLeft != -1) {
+                        maxOf(0, savedSecondsLeft - elapsedSeconds)
+                    } else {
+                        val bMins = prefs.getInt("break_duration", 5)
+                        maxOf(0, (bMins * 60) - elapsedSeconds)
+                    }
                     
-                    if (totalElapsedMs >= totalDurationMs) {
-                        // Completed in background
-                        _accumulatedSessionTimeMs.value = totalDurationMs
+                    if (actualSecondsLeft <= 0) {
                         _timerSecondsLeft.value = 0
                         _isTimerRunning.value = false
-                        handlePhaseCompletion(appContext, completedFocusPhase = true)
+                        withContext(Dispatchers.Main) {
+                            handlePhaseCompletion(appContext, completedFocusPhase = false)
+                        }
                     } else {
-                        // Still running
-                        _accumulatedSessionTimeMs.value = totalElapsedMs
-                        _timerSecondsLeft.value = ((totalDurationMs - totalElapsedMs) / 1000).toInt()
+                        _timerSecondsLeft.value = actualSecondsLeft
                         _isTimerRunning.value = false
-                        setLastResumeTimeMs(effectiveResume)
-                        startTimer(appContext, stopActiveAlarm = false, isResuming = true)
+                        withContext(Dispatchers.Main) {
+                            startTimer(appContext, stopActiveAlarm = false, isResuming = true)
+                        }
+                    }
+                }
+            } else {
+                _isTimerRunning.value = false
+                if (_isFocusPhase.value && !_wasStartedFromStopwatch.value) {
+                    val totalDurationMs = _timerDurationMinutes.value * 60 * 1000L
+                    _timerSecondsLeft.value = maxOf(0, ((totalDurationMs - _accumulatedSessionTimeMs.value) / 1000).toInt())
+                } else if (!_isFocusPhase.value) {
+                    val savedSecondsLeft = prefs.getInt("timer_seconds_left", -1)
+                    if (savedSecondsLeft != -1) {
+                        _timerSecondsLeft.value = savedSecondsLeft
+                    } else {
+                        val bMins = prefs.getInt("break_duration", 5)
+                        _timerSecondsLeft.value = bMins * 60
+                    }
+                }
+            }
+            
+            if (savedIsStopwatchActive) {
+                if (savedIsPaused) {
+                    _isStopwatchActive.value = false
+                    _stopwatchSeconds.value = (savedAccumulated / 1000).toInt()
+                } else if (effectiveResume != -1L) {
+                    val elapsedBackgroundMs = maxOf(0L, StableTime.currentTimeMillis() - effectiveResume)
+                    _accumulatedSessionTimeMs.value = savedAccumulated + elapsedBackgroundMs
+                    _stopwatchSeconds.value = (_accumulatedSessionTimeMs.value / 1000).toInt()
+                    _isStopwatchActive.value = false
+                    setLastResumeTimeMs(effectiveResume)
+                    withContext(Dispatchers.Main) {
+                        startStopwatch(appContext, stopActiveAlarm = false, isResuming = true)
                     }
                 } else {
-                    _isTimerRunning.value = false
-                    startTimer(appContext, stopActiveAlarm = false, isResuming = true)
+                    _isStopwatchActive.value = false
+                    withContext(Dispatchers.Main) {
+                        startStopwatch(appContext, stopActiveAlarm = false, isResuming = true)
+                    }
                 }
             } else {
-                // Pomodoro Break Phase Recovery
-                val savedSecondsLeft = prefs.getInt("timer_seconds_left", -1)
-                val elapsedSeconds = if (savedLastActiveTimestamp != -1L) {
-                    ((StableTime.currentTimeMillis() - savedLastActiveTimestamp) / 1000).toInt()
-                } else {
-                    0
-                }
-                val actualSecondsLeft = if (savedSecondsLeft != -1) {
-                    maxOf(0, savedSecondsLeft - elapsedSeconds)
-                } else {
-                    val bMins = prefs.getInt("break_duration", 5)
-                    maxOf(0, (bMins * 60) - elapsedSeconds)
-                }
-                
-                if (actualSecondsLeft <= 0) {
-                    _timerSecondsLeft.value = 0
-                    _isTimerRunning.value = false
-                    handlePhaseCompletion(appContext, completedFocusPhase = false)
-                } else {
-                    _timerSecondsLeft.value = actualSecondsLeft
-                    _isTimerRunning.value = false
-                    startTimer(appContext, stopActiveAlarm = false, isResuming = true)
-                }
-            }
-        } else {
-            _isTimerRunning.value = false
-            if (_isFocusPhase.value && !_wasStartedFromStopwatch.value) {
-                val totalDurationMs = _timerDurationMinutes.value * 60 * 1000L
-                _timerSecondsLeft.value = maxOf(0, ((totalDurationMs - _accumulatedSessionTimeMs.value) / 1000).toInt())
-            } else if (!_isFocusPhase.value) {
-                val savedSecondsLeft = prefs.getInt("timer_seconds_left", -1)
-                if (savedSecondsLeft != -1) {
-                    _timerSecondsLeft.value = savedSecondsLeft
-                } else {
-                    val bMins = prefs.getInt("break_duration", 5)
-                    _timerSecondsLeft.value = bMins * 60
-                }
-            }
-        }
-        
-        if (savedIsStopwatchActive) {
-            if (effectiveResume != -1L) {
-                val elapsedBackgroundMs = maxOf(0L, StableTime.currentTimeMillis() - effectiveResume)
-                _accumulatedSessionTimeMs.value = savedAccumulated + elapsedBackgroundMs
+                _isStopwatchActive.value = false
                 _stopwatchSeconds.value = (_accumulatedSessionTimeMs.value / 1000).toInt()
-                _isStopwatchActive.value = false
-                setLastResumeTimeMs(effectiveResume)
-                startStopwatch(appContext, stopActiveAlarm = false, isResuming = true)
-            } else {
-                _isStopwatchActive.value = false
-                startStopwatch(appContext, stopActiveAlarm = false, isResuming = true)
             }
-        } else {
-            _isStopwatchActive.value = false
-            _stopwatchSeconds.value = (_accumulatedSessionTimeMs.value / 1000).toInt()
-        }
-        
-        if (savedAttachedTaskId != -1) {
-            scope.launch(Dispatchers.IO) {
+            
+            if (savedAttachedTaskId != -1) {
                 try {
                     val db = AppDatabase.getInstance(appContext)
                     val task = db.taskDao().getTaskById(savedAttachedTaskId)
@@ -940,13 +939,15 @@ object FocusTimerManager {
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+            } else {
+                _attachedTask.value = null
             }
-        } else {
-            _attachedTask.value = null
+            
+            addSystemLog(appContext, "Session State Recovered Dynamically", "STATE_RESTORE", "TimerRunning=$savedIsRunning, StopwatchActive=$savedIsStopwatchActive, AccumulatedTimeMs=${accumulatedSessionTimeMs.value}")
+            withContext(Dispatchers.Main) {
+                com.example.widget.WidgetManager.updateAllWidgets(appContext)
+            }
         }
-        
-        addSystemLog(appContext, "Session State Recovered Dynamically", "STATE_RESTORE", "TimerRunning=$savedIsRunning, StopwatchActive=$savedIsStopwatchActive, AccumulatedTimeMs=${accumulatedSessionTimeMs.value}")
-        com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
     }
 
     fun reloadTimerSettingsFromPrefs(context: Context) {
@@ -1432,7 +1433,7 @@ object FocusTimerManager {
             // --- POMODORO FOCUS MODE (Timestamp Engine) ---
             val isResumingSession = actualResuming || _accumulatedSessionTimeMs.value > 0L || (_timerSecondsLeft.value < _timerDurationMinutes.value * 60) || _isTimerRunning.value
             val email = com.example.api.DynamicCommandManager.activeEmail
-            if (email.isNotEmpty()) {
+            if (email.isNotEmpty() && !isPassiveCalibrationInProgress) {
                 val action = if (isResumingSession) "resumed" else "start"
                 val timeline = com.example.api.DynamicCommandManager.currentTimelineFlow.value
                 val task = _attachedTask.value?.title ?: "Focus Session"
@@ -1462,8 +1463,10 @@ object FocusTimerManager {
 
             setLastResumeTimeMs(StableTime.currentTimeMillis())
             saveActiveSessionState(appContext)
-            reportActionToFirebase(appContext, "start_timer")
-            com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
+            if (!isPassiveCalibrationInProgress) {
+                reportActionToFirebase(appContext, "start_timer")
+            }
+            com.example.widget.WidgetManager.updateAllWidgets(appContext)
 
             val baseAccumulatedMs = _accumulatedSessionTimeMs.value
             timerJob?.cancel()
@@ -1473,9 +1476,14 @@ object FocusTimerManager {
                 updateOverlayVisibility(appContext)
 
                 val totalDurationMs = _timerDurationMinutes.value * 60 * 1000L
+                var tickCounter = 0
 
                 while (_isTimerRunning.value && _isFocusPhase.value) {
                     delay(200) // UI refresh rate
+                    tickCounter++
+                    if (tickCounter % 25 == 0) {
+                        saveActiveSessionState(appContext)
+                    }
                     val timeline = com.example.api.DynamicCommandManager.currentTimelineFlow.value
                     val currentStatus = if (_isPaused.value) "Paused" else "Focusing"
                     val totalElapsedMs = if (timeline.isNotEmpty()) {
@@ -1557,7 +1565,7 @@ object FocusTimerManager {
                 }
             }
         }
-        com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
+        com.example.widget.WidgetManager.updateAllWidgets(appContext)
         AlarmScheduler.scheduleTimerEndAlarm(appContext, _timerSecondsLeft.value, _isFocusPhase.value)
     }
 
@@ -1700,7 +1708,7 @@ object FocusTimerManager {
                 }
             }
         }
-        com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
+        com.example.widget.WidgetManager.updateAllWidgets(appContext)
     }
 
     fun pauseTimer(context: Context) {
@@ -1749,7 +1757,7 @@ object FocusTimerManager {
         KeepAliveService.updateNotification(appContext)
                 syncStateToFirebase(appContext)
         updateOverlayVisibility(appContext)
-        com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
+        com.example.widget.WidgetManager.updateAllWidgets(appContext)
     }
 
     fun extractSessionStartMs(
@@ -1823,108 +1831,96 @@ object FocusTimerManager {
             return null
         }
         
-        val currentSession = try {
-            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                com.example.data.AppDatabase.getInstance(appContext).localActiveSessionDao().getActiveSession()
-            }
-        } catch (e: Exception) {
-            null
-        }
-
-        com.example.util.FocusSessionDbHelper.handleEndSession(appContext, onWiped = {
-            Log.d("FocusTimerManager", "Active session wiped due to short-circuit guard.")
-            performCloudAlignmentCheck(appContext)
-            runBackgroundAuditAndHealing(appContext)
-        }, onArchived = { record ->
-            Log.d("FocusTimerManager", "Active session archived: recordId = ${record.record_id}")
-            performCloudAlignmentCheck(appContext)
-            runBackgroundAuditAndHealing(appContext)
-        })
-        
-        // Asynchronous background alignment check
+        // Run database queries and session updates asynchronously on Dispatchers.IO
         scope.launch(Dispatchers.IO) {
-            try {
-                delay(1500)
+            val currentSession = try {
+                com.example.data.AppDatabase.getInstance(appContext).localActiveSessionDao().getActiveSession()
+            } catch (e: Exception) {
+                null
+            }
+
+            com.example.util.FocusSessionDbHelper.handleEndSession(appContext, onWiped = {
+                Log.d("FocusTimerManager", "Active session wiped due to short-circuit guard.")
                 performCloudAlignmentCheck(appContext)
                 runBackgroundAuditAndHealing(appContext)
-            } catch (e: Exception) {
-                Log.e("FocusTimerManager", "Error in post-session audit/sync pipeline", e)
+            }, onArchived = { record ->
+                Log.d("FocusTimerManager", "Active session archived: recordId = ${record.record_id}")
+                performCloudAlignmentCheck(appContext)
+                runBackgroundAuditAndHealing(appContext)
+            })
+
+            recordSessionCompleteOrReset(true)
+            val nowMs = System.currentTimeMillis()
+            val sessionBreakMs = currentSession?.base_break_time_ms ?: 0L
+            val actualStartMs = maxOf(0L, nowMs - (elapsedSecs * 1000L) - sessionBreakMs)
+            val sessionStart = actualStartMs
+
+            if (_verifiedSessionStartMs.value == null) {
+                _verifiedSessionStartMs.value = sessionStart
             }
-        }
-        
-        recordSessionCompleteOrReset(true)
-        val nowMs = System.currentTimeMillis()
-        val sessionBreakMs = currentSession?.base_break_time_ms ?: 0L
-        val actualStartMs = maxOf(0L, nowMs - (elapsedSecs * 1000L) - sessionBreakMs)
-        val sessionStart = actualStartMs
+            
+            val finalMinutes = com.example.util.TimeEngine.roundSecondsToMinutes(elapsedSecs)
+            val formatter = java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.getDefault())
+            val startStr = formatter.format(java.util.Date(actualStartMs))
+            val endStr = formatter.format(java.util.Date(nowMs))
+            val taskName = _attachedTask.value?.title ?: "Focus Session"
+            val tagValue = _attachedTag.value
+            val modeNotes = if (isTimer) "TIMER_SESSION" else "STOPWATCH_SESSION"
+            val sessionId = currentSession?.session_id ?: com.example.api.DynamicCommandManager.activeSessionId.ifEmpty { "sess_${com.example.util.StableTime.currentTimeMillis()}" }
+            
+            // 1. Save Focus Record locally
+            val record = addFocusRecord(context, startStr, endStr, taskName, finalMinutes, modeNotes, elapsedSecs, tagValue, id = sessionId, totalBreakMs = sessionBreakMs)
+            if (record == null) {
+                Log.w("FocusTimerManager", "persistFocusSession aborted due to Causality Guard.")
+                return@launch
+            }
 
-        if (_verifiedSessionStartMs.value == null) {
-            _verifiedSessionStartMs.value = sessionStart
-        }
-        
-        val finalMinutes = com.example.util.TimeEngine.roundSecondsToMinutes(elapsedSecs)
-        val formatter = java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.getDefault())
-        val startStr = formatter.format(java.util.Date(actualStartMs))
-        val endStr = formatter.format(java.util.Date(nowMs))
-        val taskName = _attachedTask.value?.title ?: "Focus Session"
-        val tagValue = _attachedTag.value
-        val modeNotes = if (isTimer) "TIMER_SESSION" else "STOPWATCH_SESSION"
-        val sessionId = currentSession?.session_id ?: com.example.api.DynamicCommandManager.activeSessionId.ifEmpty { "sess_${com.example.util.StableTime.currentTimeMillis()}" }
-        
-        // 1. Save Focus Record locally
-        val record = addFocusRecord(context, startStr, endStr, taskName, finalMinutes, modeNotes, elapsedSecs, tagValue, id = sessionId, totalBreakMs = sessionBreakMs)
-        if (record == null) {
-            Log.w("FocusTimerManager", "persistFocusSession aborted due to Causality Guard.")
-            return null
-        }
+            // 2. Update Stats (Pomos count and total focus minutes)
+            val prefs = context.applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            val focusTimerDurationMins = prefs.getInt("timer_duration", 25)
+            if (isTimer && finalMinutes >= focusTimerDurationMins && focusTimerDurationMins > 0) {
+                val currentPomos = _todayPomosCount.value
+                _todayPomosCount.value = currentPomos + 1
+                prefs.edit().putInt("today_pomos_count", currentPomos + 1).apply()
+            }
 
-        // 2. Update Stats (Pomos count and total focus minutes)
-        val prefs = context.applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-        val focusTimerDurationMins = prefs.getInt("timer_duration", 25)
-        if (isTimer && finalMinutes >= focusTimerDurationMins && focusTimerDurationMins > 0) {
-            val currentPomos = _todayPomosCount.value
-            _todayPomosCount.value = currentPomos + 1
-            prefs.edit().putInt("today_pomos_count", currentPomos + 1).apply()
-        }
+            val currentMins = _totalFocusMinutes.value
+            _totalFocusMinutes.value = currentMins + finalMinutes
+            prefs.edit().putInt("total_focus_minutes", currentMins + finalMinutes).apply()
 
-        val currentMins = _totalFocusMinutes.value
-        _totalFocusMinutes.value = currentMins + finalMinutes
-        prefs.edit().putInt("total_focus_minutes", currentMins + finalMinutes).apply()
+            // Disable global verification dialog for background/immediate completion and auto-saves
+            _globalVerificationFocusedTimeSeconds.value = elapsedSecs
+            _globalVerificationRevisedTotalMinutes.value = getTodayFocusMinutes()
+            _globalVerificationRevisedTotalSeconds.value = getTodayFocusSeconds()
+            _showGlobalVerificationDialog.value = false
 
-        // Disable global verification dialog for background/immediate completion and auto-saves
-        _globalVerificationFocusedTimeSeconds.value = elapsedSecs
-        _globalVerificationRevisedTotalMinutes.value = getTodayFocusMinutes()
-        _globalVerificationRevisedTotalSeconds.value = getTodayFocusSeconds()
-        _showGlobalVerificationDialog.value = false
+            // 3. Update task progress in database
+            _attachedTask.value?.let { task ->
+                val updatedTask = task.copy(actualMinutes = task.actualMinutes + finalMinutes)
+                updateTaskInDatabase(context, updatedTask)
+                _attachedTask.value = updatedTask
+            }
 
-        // 3. Update task progress in database
-        _attachedTask.value?.let { task ->
-            val updatedTask = task.copy(actualMinutes = task.actualMinutes + finalMinutes)
-            updateTaskInDatabase(context, updatedTask)
-            _attachedTask.value = updatedTask
-        }
-        
-        // 4. Remote Firebase Synchronization (Legacy focusTimer sync removed permanently)
-
-        // 5. Automatic Google Drive Backup
-        if (GoogleDriveSyncManager.hasDrivePermission(context)) {
-            scope.launch(Dispatchers.IO) {
-                withContext(NonCancellable) {
-                    try {
-                        GoogleDriveSyncManager.backupFocusData(context)
-                        Log.d("FocusTimerManager", "Successfully auto-backed up focus records to Google Drive.")
-                    } catch (e: Exception) {
-                        Log.e("FocusTimerManager", "Failed to auto-backup to Google Drive", e)
-                    }
+            // 4. Automatic Google Drive Backup
+            if (GoogleDriveSyncManager.hasDrivePermission(context)) {
+                try {
+                    GoogleDriveSyncManager.backupFocusData(context)
+                    Log.d("FocusTimerManager", "Successfully auto-backed up focus records to Google Drive.")
+                } catch (e: Exception) {
+                    Log.e("FocusTimerManager", "Failed to auto-backup to Google Drive", e)
                 }
             }
-        }
 
-        return record
+            delay(1500)
+            performCloudAlignmentCheck(appContext)
+            runBackgroundAuditAndHealing(appContext)
+        }
+        return null
     }
 
     fun resetTimer(context: Context, saveSession: Boolean = true) {
         val appContext = context.applicationContext
+        val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         if (!isPassiveCalibrationInProgress) {
             appendTimelineEvent(appContext, "END")
             claimCommandDevice(context)
@@ -1948,15 +1944,9 @@ object FocusTimerManager {
         var elapsedSecs = maxOf(_cumulativeSessionFocusSeconds.value, calculatedSecs, timerElapsedSecs)
 
         if (saveSession && elapsedSecs <= 0) {
-            try {
-                val dbSession = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                    com.example.data.AppDatabase.getInstance(appContext).localActiveSessionDao().getActiveSession()
-                }
-                if (dbSession != null && dbSession.base_focus_time_ms > 0) {
-                    elapsedSecs = (dbSession.base_focus_time_ms / 1000).toInt()
-                }
-            } catch (e: Exception) {
-                Log.e("FocusTimerManager", "Error reading DB active session in resetTimer", e)
+            val accMs = prefs.getLong("accumulated_time_ms", 0L)
+            if (accMs > 0) {
+                elapsedSecs = (accMs / 1000).toInt()
             }
         }
 
@@ -2047,13 +2037,13 @@ object FocusTimerManager {
         savedStopwatchSeconds = 0
 
         if (!shouldSave) {
-            try {
-                kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            scope.launch(Dispatchers.IO) {
+                try {
                     val db = com.example.data.AppDatabase.getInstance(appContext)
                     db.openHelper.writableDatabase.execSQL("DELETE FROM local_active_session")
+                } catch (e: Exception) {
+                    Log.e("FocusTimerManager", "Error clearing local_active_session in resetTimer", e)
                 }
-            } catch (e: Exception) {
-                Log.e("FocusTimerManager", "Error clearing local_active_session synchronously in resetTimer", e)
             }
         }
 
@@ -2064,7 +2054,6 @@ object FocusTimerManager {
         _wasStartedFromStopwatch.value = false
         _isPaused.value = false
         savedStopwatchSeconds = 0
-        val prefs = context.applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         prefs.edit()
             .putBoolean("was_started_from_stopwatch", false)
             .putBoolean("is_paused", false)
@@ -2080,7 +2069,7 @@ object FocusTimerManager {
         KeepAliveService.updateNotification(appContext)
                 syncStateToFirebase(appContext)
         updateOverlayVisibility(appContext)
-        com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
+        com.example.widget.WidgetManager.updateAllWidgets(appContext)
     }
 
     fun takeBreakFromStopwatch(context: Context) {
@@ -2117,7 +2106,7 @@ object FocusTimerManager {
         appendTimelineEvent(context, "BREAK START")
         startTimer(context)
         reportActionToFirebase(context, "take_break_stopwatch")
-        com.example.widget.WidgetUpdater.updateAllWidgets(context)
+        com.example.widget.WidgetManager.updateAllWidgets(context)
     }
 
     fun takeBreakFromPomodoro(context: Context) {
@@ -2157,7 +2146,7 @@ object FocusTimerManager {
         appendTimelineEvent(context, "BREAK START")
         startTimer(context)
         reportActionToFirebase(context, "take_break_pomo")
-        com.example.widget.WidgetUpdater.updateAllWidgets(context)
+        com.example.widget.WidgetManager.updateAllWidgets(context)
     }
 
     fun skipOrEndBreak(context: Context, isUserManualEnd: Boolean = false) {
@@ -2212,7 +2201,7 @@ object FocusTimerManager {
             }
         }
         reportActionToFirebase(appContext, "skip_or_end_break")
-        com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
+        com.example.widget.WidgetManager.updateAllWidgets(appContext)
     }
 
     fun startStopwatch(context: Context, stopActiveAlarm: Boolean = true, isResuming: Boolean = false, resumeFromBreak: Boolean = false) {
@@ -2280,7 +2269,7 @@ object FocusTimerManager {
         saveActiveSessionState(appContext)
         val isResumingSession = actualResuming || _accumulatedSessionTimeMs.value > 0L || _stopwatchSeconds.value > 0 || _isStopwatchActive.value
         val email = com.example.api.DynamicCommandManager.activeEmail
-        if (email.isNotEmpty()) {
+        if (email.isNotEmpty() && !isPassiveCalibrationInProgress) {
             val action = if (resumeFromBreak) "break_ended" else if (isResumingSession) "resumed" else "start"
             val timeline = com.example.api.DynamicCommandManager.currentTimelineFlow.value
             val task = _attachedTask.value?.title ?: "Focus Session"
@@ -2310,16 +2299,23 @@ object FocusTimerManager {
         setLastResumeTimeMs(StableTime.currentTimeMillis())
         updateOverlayVisibility(appContext)
         saveActiveSessionState(appContext)
-        reportActionToFirebase(appContext, "start_stopwatch")
-        com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
+        if (!isPassiveCalibrationInProgress) {
+            reportActionToFirebase(appContext, "start_stopwatch")
+        }
+        com.example.widget.WidgetManager.updateAllWidgets(appContext)
 
         val baseAccumulatedMs = _accumulatedSessionTimeMs.value
         stopwatchJob?.cancel()
         stopwatchJob = scope.launch {
             KeepAliveService.updateNotification(appContext)
-                syncStateToFirebase(appContext)
+            syncStateToFirebase(appContext)
+            var stopwatchTickCounter = 0
             while (_isStopwatchActive.value) {
                 delay(200) // UI refresh rate
+                stopwatchTickCounter++
+                if (stopwatchTickCounter % 25 == 0) {
+                    saveActiveSessionState(appContext)
+                }
                 val timeline = com.example.api.DynamicCommandManager.currentTimelineFlow.value
                 val currentStatus = if (_isPaused.value) "Paused" else "Focusing"
                 val totalMs = if (timeline.isNotEmpty()) {
@@ -2408,11 +2404,12 @@ object FocusTimerManager {
         KeepAliveService.updateNotification(appContext)
                 syncStateToFirebase(appContext)
         updateOverlayVisibility(appContext)
-        com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
+        com.example.widget.WidgetManager.updateAllWidgets(appContext)
     }
 
     fun resetStopwatch(context: Context, saveSession: Boolean = true) {
         val appContext = context.applicationContext
+        val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         if (!isPassiveCalibrationInProgress) {
             appendTimelineEvent(appContext, "END")
             claimCommandDevice(context)
@@ -2433,15 +2430,9 @@ object FocusTimerManager {
         var elapsedSecs = maxOf(_stopwatchSeconds.value, _cumulativeSessionFocusSeconds.value, calculatedSecs)
 
         if (saveSession && elapsedSecs <= 0) {
-            try {
-                val dbSession = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                    com.example.data.AppDatabase.getInstance(appContext).localActiveSessionDao().getActiveSession()
-                }
-                if (dbSession != null && dbSession.base_focus_time_ms > 0) {
-                    elapsedSecs = (dbSession.base_focus_time_ms / 1000).toInt()
-                }
-            } catch (e: Exception) {
-                Log.e("FocusTimerManager", "Error reading DB active session in resetStopwatch", e)
+            val accMs = prefs.getLong("accumulated_time_ms", 0L)
+            if (accMs > 0) {
+                elapsedSecs = (accMs / 1000).toInt()
             }
         }
 
@@ -2530,20 +2521,19 @@ object FocusTimerManager {
         savedStopwatchSeconds = 0
 
         if (!shouldSave) {
-            try {
-                kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            scope.launch(Dispatchers.IO) {
+                try {
                     val db = com.example.data.AppDatabase.getInstance(appContext)
                     db.openHelper.writableDatabase.execSQL("DELETE FROM local_active_session")
+                } catch (e: Exception) {
+                    Log.e("FocusTimerManager", "Error clearing local_active_session in resetStopwatch", e)
                 }
-            } catch (e: Exception) {
-                Log.e("FocusTimerManager", "Error clearing local_active_session synchronously in resetStopwatch", e)
             }
         }
 
         // Reset phase and wasStartedFromStopwatch flags so they don't get stuck in break mode
         _isFocusPhase.value = true
         _wasStartedFromStopwatch.value = false
-        val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         prefs.edit()
             .putBoolean("was_started_from_stopwatch", false)
             .putBoolean("is_paused", false)
@@ -2559,7 +2549,7 @@ object FocusTimerManager {
         KeepAliveService.updateNotification(appContext)
                 syncStateToFirebase(appContext)
         updateOverlayVisibility(appContext)
-        com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
+        com.example.widget.WidgetManager.updateAllWidgets(appContext)
     }
 
     fun alignStateWithRemoteEnd(context: Context) {
@@ -2601,15 +2591,21 @@ object FocusTimerManager {
         
         KeepAliveService.updateNotification(appContext)
         updateOverlayVisibility(appContext)
-        com.example.widget.WidgetUpdater.updateAllWidgets(appContext)
+        com.example.widget.WidgetManager.updateAllWidgets(appContext)
     }
 
     fun setAppBackgroundedState(context: Context, backgrounded: Boolean) {
         init(context)
         appIsBackgrounded = backgrounded
         
-        val prefs = context.applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        val appContext = context.applicationContext
+        val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         prefs.edit().putBoolean("app_is_backgrounded", backgrounded).apply()
+        
+        if (backgrounded) {
+            // Always save active session state to disk when app goes to background
+            saveActiveSessionState(appContext)
+        }
         
         val batterySaverEnabled = prefs.getBoolean("battery_saver_mode", false)
         val backgroundServicesSilentMode = prefs.getBoolean("background_services_silent_mode", false)
@@ -2714,7 +2710,7 @@ object FocusTimerManager {
             } else {
                 hideOverlay()
             }
-            com.example.widget.WidgetUpdater.updateAllWidgets(context)
+            com.example.widget.WidgetManager.updateAllWidgets(context)
         }
     }
 
@@ -4199,25 +4195,82 @@ object FocusTimerManager {
         }
     }
 
+    private val targetDateRangeCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Long>>()
+    private val recordStartEndCache = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Long>>()
+
+    fun clearRecordCaches() {
+        targetDateRangeCache.clear()
+        recordStartEndCache.clear()
+    }
+
+    private val threadLocalFormatters = ThreadLocal.withInitial {
+        listOf(
+            java.text.SimpleDateFormat("yyyy-MM-dd hh:mm:ss a", java.util.Locale.US),
+            java.text.SimpleDateFormat("yyyy-MM-dd hh:mm a", java.util.Locale.US),
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US),
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US),
+            java.text.SimpleDateFormat("yyyy-MM-dd hh:mm:ss a", java.util.Locale.getDefault()),
+            java.text.SimpleDateFormat("yyyy-MM-dd hh:mm a", java.util.Locale.getDefault()),
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()),
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+        )
+    }
+
+    fun getTargetDateRangeMs(targetDateStr: String): Pair<Long, Long> {
+        return targetDateRangeCache.getOrPut(targetDateStr) {
+            try {
+                val parts = targetDateStr.split("-")
+                if (parts.size == 3) {
+                    val yr = parts[0].toInt()
+                    val mo = parts[1].toInt() - 1
+                    val dy = parts[2].toInt()
+                    val cal = java.util.Calendar.getInstance()
+                    cal.set(yr, mo, dy, 0, 0, 0)
+                    cal.set(java.util.Calendar.MILLISECOND, 0)
+                    val sMs = cal.timeInMillis
+                    cal.set(yr, mo, dy, 23, 59, 59)
+                    cal.set(java.util.Calendar.MILLISECOND, 999)
+                    val eMs = cal.timeInMillis
+                    Pair(sMs, eMs)
+                } else {
+                    val dateParser = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                    val targetDate = dateParser.parse(targetDateStr) ?: java.util.Date()
+                    val cal = java.util.Calendar.getInstance()
+                    cal.time = targetDate
+                    cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                    cal.set(java.util.Calendar.MINUTE, 0)
+                    cal.set(java.util.Calendar.SECOND, 0)
+                    cal.set(java.util.Calendar.MILLISECOND, 0)
+                    val sMs = cal.timeInMillis
+                    cal.set(java.util.Calendar.HOUR_OF_DAY, 23)
+                    cal.set(java.util.Calendar.MINUTE, 59)
+                    cal.set(java.util.Calendar.SECOND, 59)
+                    cal.set(java.util.Calendar.MILLISECOND, 999)
+                    val eMs = cal.timeInMillis
+                    Pair(sMs, eMs)
+                }
+            } catch (e: Exception) {
+                val now = System.currentTimeMillis()
+                Pair(now - 86400000L, now)
+            }
+        }
+    }
+
     fun getRecordStartAndEndMs(record: FocusRecord, targetDateStr: String? = null): Pair<Long, Long>? {
         val recDateStr = if (record.dateString.isNotEmpty()) record.dateString else (targetDateStr ?: "")
         if (recDateStr.isEmpty()) return null
+
+        val cacheKey = "${record.id}_${record.startTime}_${record.endTime}_${record.dateString}_${targetDateStr ?: ""}"
+        recordStartEndCache[cacheKey]?.let { return it }
 
         val sFrac = parseTimeToHourFraction(record.startTime)
         val eFrac = parseTimeToHourFraction(record.endTime)
         val durationMs = record.durationSeconds * 1000L
 
-        val formats = listOf(
-            "yyyy-MM-dd hh:mm:ss a",
-            "yyyy-MM-dd hh:mm a",
-            "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd HH:mm"
-        )
-
         fun parseDate(str: String): java.util.Date? {
-            for (fmt in formats) {
+            val formatters = threadLocalFormatters.get()
+            for (parser in formatters) {
                 try {
-                    val parser = java.text.SimpleDateFormat(fmt, java.util.Locale.getDefault())
                     val d = parser.parse(str)
                     if (d != null) return d
                 } catch (_: Exception) {}
@@ -4225,7 +4278,7 @@ object FocusTimerManager {
             return null
         }
 
-        if (sFrac != null && eFrac != null && eFrac < sFrac) {
+        val result: Pair<Long, Long>? = if (sFrac != null && eFrac != null && eFrac < sFrac) {
             val parsedStart = parseDate("$recDateStr ${record.startTime}")
             val parsedEnd = parseDate("$recDateStr ${record.endTime}")
 
@@ -4235,21 +4288,21 @@ object FocusTimerManager {
                 if (sTime > eTime) {
                     val endMs = eTime
                     val startMs = endMs - durationMs
-                    return Pair(startMs, endMs)
+                    Pair(startMs, endMs)
                 } else {
                     val startMs = sTime
                     val endMs = startMs + durationMs
-                    return Pair(startMs, endMs)
+                    Pair(startMs, endMs)
                 }
             } else if (parsedStart != null) {
                 val startMs: Long = parsedStart.time
                 val endMs = startMs + durationMs
-                return Pair(startMs, endMs)
+                Pair(startMs, endMs)
             } else if (parsedEnd != null) {
                 val endMs: Long = parsedEnd.time
                 val startMs = endMs - durationMs
-                return Pair(startMs, endMs)
-            }
+                Pair(startMs, endMs)
+            } else null
         } else {
             val parsedStart = parseDate("$recDateStr ${record.startTime}")
             if (parsedStart != null) {
@@ -4258,10 +4311,14 @@ object FocusTimerManager {
                     val parsedEnd = parseDate("$recDateStr ${record.endTime}")
                     if (parsedEnd != null) parsedEnd.time else (startMs + durationMs)
                 }
-                return Pair(startMs, endMs)
-            }
+                Pair(startMs, endMs)
+            } else null
         }
-        return null
+
+        if (result != null) {
+            recordStartEndCache[cacheKey] = result
+        }
+        return result
     }
 
     fun getOverlapSecondsForDate(record: FocusRecord, targetDateStr: String): Int {
@@ -4277,21 +4334,7 @@ object FocusTimerManager {
                 }
             }
 
-            val dateParser = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-            val targetDate = dateParser.parse(targetDateStr) ?: return record.durationSeconds
-            val calendar = java.util.Calendar.getInstance()
-            calendar.time = targetDate
-            calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-            calendar.set(java.util.Calendar.MINUTE, 0)
-            calendar.set(java.util.Calendar.SECOND, 0)
-            calendar.set(java.util.Calendar.MILLISECOND, 0)
-            val targetStartMs = calendar.timeInMillis
-
-            calendar.set(java.util.Calendar.HOUR_OF_DAY, 23)
-            calendar.set(java.util.Calendar.MINUTE, 59)
-            calendar.set(java.util.Calendar.SECOND, 59)
-            calendar.set(java.util.Calendar.MILLISECOND, 999)
-            val targetEndMs = calendar.timeInMillis
+            val (targetStartMs, targetEndMs) = getTargetDateRangeMs(targetDateStr)
 
             val startAndEnd = getRecordStartAndEndMs(record, targetDateStr)
             if (startAndEnd == null) {
@@ -4322,21 +4365,7 @@ object FocusTimerManager {
     fun getActiveSessionOverlapSeconds(startMs: Long, targetDateStr: String): Int {
         try {
             val endMs = StableTime.currentTimeMillis()
-            val dateParser = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-            val targetDate = dateParser.parse(targetDateStr) ?: return 0
-            val calendar = java.util.Calendar.getInstance()
-            calendar.time = targetDate
-            calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
-            calendar.set(java.util.Calendar.MINUTE, 0)
-            calendar.set(java.util.Calendar.SECOND, 0)
-            calendar.set(java.util.Calendar.MILLISECOND, 0)
-            val targetStartMs = calendar.timeInMillis
-            
-            calendar.set(java.util.Calendar.HOUR_OF_DAY, 23)
-            calendar.set(java.util.Calendar.MINUTE, 59)
-            calendar.set(java.util.Calendar.SECOND, 59)
-            calendar.set(java.util.Calendar.MILLISECOND, 999)
-            val targetEndMs = calendar.timeInMillis
+            val (targetStartMs, targetEndMs) = getTargetDateRangeMs(targetDateStr)
             
             val overlapStart = maxOf(startMs, targetStartMs)
             val overlapEnd = minOf(endMs, targetEndMs)

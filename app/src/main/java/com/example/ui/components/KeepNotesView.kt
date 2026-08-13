@@ -525,11 +525,18 @@ fun KeepNotesView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                                 requestPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
                             } else {
-                                val outPhotoFile = File(StorageHelper.getAppFilesDir(context), "note_photo_${System.currentTimeMillis()}.jpg")
-                                activePhotoFile = outPhotoFile
-                                val photoUri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outPhotoFile)
                                 try {
-                                    takePhotoLauncher.launch(photoUri)
+                                    val outPhotoFile = com.example.util.InternalStorageManager.getFile(
+                                        context, 
+                                        com.example.util.InternalStorageManager.Category.NOTES, 
+                                        "note_photo_${System.currentTimeMillis()}.jpg"
+                                    )
+                                    if (!outPhotoFile.exists()) outPhotoFile.createNewFile()
+                                    activePhotoFile = outPhotoFile
+                                    val photoUri = com.example.util.InternalStorageManager.getShareableUri(context, outPhotoFile)
+                                    if (photoUri != null) {
+                                        takePhotoLauncher.launch(photoUri)
+                                    }
                                 } catch (e: android.content.ActivityNotFoundException) {
                                     Toast.makeText(context, "No camera application found to take photos.", Toast.LENGTH_LONG).show()
                                 } catch (e: Exception) {
@@ -545,11 +552,15 @@ fun KeepNotesView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                                 requestPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
                             } else {
-                                val outVideoFile = File(StorageHelper.getAppFilesDir(context), "note_video_${System.currentTimeMillis()}.mp4")
+                                val outVideoFile = com.example.util.InternalStorageManager.getFile(
+                                    context, 
+                                    com.example.util.InternalStorageManager.Category.NOTES, 
+                                    "note_video_${System.currentTimeMillis()}.mp4"
+                                )
                                 activeVideoFile = outVideoFile
-                                val videoUri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outVideoFile)
+                                val videoUri = com.example.util.InternalStorageManager.getShareableUri(context, outVideoFile)
                                 try {
-                                    captureVideoLauncher.launch(videoUri)
+                                    if (videoUri != null) captureVideoLauncher.launch(videoUri)
                                 } catch (e: android.content.ActivityNotFoundException) {
                                     Toast.makeText(context, "No video recorder application found to record videos.", Toast.LENGTH_LONG).show()
                                 } catch (e: Exception) {
@@ -591,7 +602,11 @@ fun KeepNotesView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                         }
                                     } else {
                                         // Start recording code
-                                        val recFile = File(StorageHelper.getAppFilesDir(context), "note_voice_${System.currentTimeMillis()}.mp3")
+                                        val recFile = com.example.util.InternalStorageManager.getFile(
+                                            context, 
+                                            com.example.util.InternalStorageManager.Category.NOTES, 
+                                            "note_voice_${System.currentTimeMillis()}.mp3"
+                                        )
                                         currentAudioRecordingFile = recFile
                                         try {
                                             audioRecorder = MediaRecorder().apply {

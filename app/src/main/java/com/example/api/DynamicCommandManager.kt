@@ -22,14 +22,39 @@ object DynamicCommandManager {
     private var applicationContext: Context? = null
 
     @Volatile
-    var activeEmail: String = ""
+    private var _explicitEmail: String = ""
+
+    var activeEmail: String
+        get() {
+            if (_explicitEmail.isNotBlank()) return _explicitEmail
+            applicationContext?.let { ctx ->
+                val prefs = ctx.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                val email = prefs.getString("user_email", "") ?: ""
+                if (email.isNotBlank()) return email
+                val user = prefs.getString("current_username", "") ?: ""
+                if (user.isNotBlank()) {
+                    val userEmail = prefs.getString("user_email_$user", "") ?: ""
+                    if (userEmail.isNotBlank()) return userEmail
+                    if (user.contains("@")) return user
+                }
+            }
+            return ""
+        }
+        set(value) {
+            _explicitEmail = value
+        }
 
     @Volatile
     var activeSessionId: String = ""
 
+    @Volatile
+    private var lastCalibratedFingerprint: String = ""
+
     fun initialize(context: Context, email: String) {
         applicationContext = context.applicationContext
-        activeEmail = email
+        if (email.isNotBlank()) {
+            activeEmail = email
+        }
         
         // Try to load activeSessionId from SharedPreferences if empty
         val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
@@ -56,6 +81,7 @@ object DynamicCommandManager {
     }
 
     fun resetToIdle() {
+        lastCalibratedFingerprint = ""
         currentTimelineFlow.value = emptyList()
         currentStatusFlow.value = "IDLE"
         activeSessionId = ""
@@ -340,6 +366,15 @@ object DynamicCommandManager {
 
     fun startListeningToActiveFocusTimer(context: Context, email: String) {
         val appContext = context.applicationContext
+        applicationContext = appContext
+        if (email.isNotBlank()) {
+            activeEmail = email
+        }
+        val emailToUse = activeEmail
+        if (emailToUse.isBlank()) {
+            Log.e(TAG, "Cannot start listening to active focus timer: email is blank.")
+            return
+        }
         val dbUrl = FirebaseConfig.getDatabaseUrl(appContext)
         if (dbUrl.isEmpty()) {
             Log.e(TAG, "Firebase DB URL is empty. Cannot start listening to active focus timer.")
@@ -349,7 +384,7 @@ object DynamicCommandManager {
         stopListeningToActiveFocusTimer()
 
         val database = FirebaseDatabase.getInstance(dbUrl)
-        val sanitizedEmail = DevicePresenceManager.sanitizeEmail(email)
+        val sanitizedEmail = DevicePresenceManager.sanitizeEmail(emailToUse)
         val activeRef = database.getReference("FOCUS_TIMMER")
             .child("USER")
             .child(sanitizedEmail)
@@ -428,6 +463,13 @@ object DynamicCommandManager {
                     }
                 }
 
+                val fingerprint = "$statusStr|$timerMode|$currentTask|$currentTag|${timelineList.size}|${timelineList.lastOrNull()?.timestamp}"
+                if (fingerprint == lastCalibratedFingerprint) {
+                    Log.d(TAG, "Active focus timer snapshot fingerprint unchanged ($fingerprint). Skipping redundant calibration.")
+                    return
+                }
+                lastCalibratedFingerprint = fingerprint
+
                 Log.d(TAG, "Received active focus timer live update from '$cmdDevice'. Syncing statusStr='$statusStr', timerMode='$timerMode'")
                 
                 // Update activeSessionId
@@ -465,13 +507,19 @@ object DynamicCommandManager {
 
     fun forceReadActiveFocusTimerAndCalibrate(context: Context, email: String) {
         val appContext = context.applicationContext
+        applicationContext = appContext
+        if (email.isNotBlank()) {
+            activeEmail = email
+        }
+        val emailToUse = activeEmail
+        if (emailToUse.isBlank()) return
         val prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
 
         val dbUrl = FirebaseConfig.getDatabaseUrl(appContext)
         if (dbUrl.isEmpty()) return
 
         val database = FirebaseDatabase.getInstance(dbUrl)
-        val sanitizedEmail = DevicePresenceManager.sanitizeEmail(email)
+        val sanitizedEmail = DevicePresenceManager.sanitizeEmail(emailToUse)
         val activeRef = database.getReference("FOCUS_TIMMER")
             .child("USER")
             .child(sanitizedEmail)
@@ -664,7 +712,7 @@ object DynamicCommandManager {
         try {
             com.example.util.FocusTimerManager.saveActiveSessionState(context)
             val db = com.example.data.AppDatabase.getInstance(context)
-            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 com.example.util.StateReconciliationHelper.saveMeaningfulActiveSessionBeforeOverwrite(context, db)
             }
         } catch (e: Exception) {
@@ -909,7 +957,7 @@ object DynamicCommandManager {
             Log.e(TAG, "Error during local state calibration", e)
         } finally {
             com.example.util.FocusTimerManager.isPassiveCalibrationInProgress = false
-            com.example.widget.WidgetUpdater.updateAllWidgets(context)
+            com.example.widget.WidgetManager.updateAllWidgets(context)
         }
     }
 }

@@ -132,9 +132,11 @@ object AlarmScheduler {
 
         val mainTriggerTimeMs = parseDateTime(dueDate, timeStr) ?: return
 
+        val actionData = com.example.util.TaskActionHelper.parseActionData(task)
+
         // 1. Schedule main task alarm (at the exact due time) under request code `task.id * 100`
         if (mainTriggerTimeMs >= System.currentTimeMillis() - 60_000) {
-            scheduleExactAlarm(context, task.id * 100, task.title, timeStr, task.priority, mainTriggerTimeMs)
+            scheduleExactAlarm(context, task.id * 100, task.title, timeStr, task.priority, mainTriggerTimeMs, actionData)
             Log.d(TAG, "Scheduled main exact alarm for task ${task.id} at $mainTriggerTimeMs (Time: $timeStr, Priority: ${task.priority})")
         }
 
@@ -162,7 +164,8 @@ object AlarmScheduler {
                         taskTitle = "${task.title} (Reminder: $reminderStr)",
                         taskTime = reminderTimeStr,
                         taskPriority = task.priority,
-                        triggerTimeMs = reminderTriggerTimeMs
+                        triggerTimeMs = reminderTriggerTimeMs,
+                        actionData = actionData
                     )
                     Log.d(TAG, "Scheduled relative reminder '$reminderStr' for task ${task.id} at $reminderTriggerTimeMs (formatted time: $reminderTimeStr)")
                 } else {
@@ -172,12 +175,12 @@ object AlarmScheduler {
         }
     }
 
-    fun scheduleSnooze(context: Context, taskId: Int, taskTitle: String, taskTime: String, taskPriority: String = "MEDIUM", snoozeDurationMinutes: Int = 5) {
+    fun scheduleSnooze(context: Context, taskId: Int, taskTitle: String, taskTime: String, taskPriority: String = "MEDIUM", snoozeDurationMinutes: Int = 5, actionData: com.example.util.TaskActionData = com.example.util.TaskActionData()) {
         val triggerTimeMs = System.currentTimeMillis() + snoozeDurationMinutes * 60 * 1000L
-        scheduleExactAlarm(context, taskId, taskTitle, taskTime, taskPriority, triggerTimeMs)
+        scheduleExactAlarm(context, taskId, taskTitle, taskTime, taskPriority, triggerTimeMs, actionData)
     }
 
-    private fun scheduleExactAlarm(context: Context, taskId: Int, taskTitle: String, taskTime: String, taskPriority: String, triggerTimeMs: Long) {
+    private fun scheduleExactAlarm(context: Context, taskId: Int, taskTitle: String, taskTime: String, taskPriority: String, triggerTimeMs: Long, actionData: com.example.util.TaskActionData = com.example.util.TaskActionData()) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         
         val intent = Intent(context, TaskReminderReceiver::class.java).apply {
@@ -185,6 +188,10 @@ object AlarmScheduler {
             putExtra("TASK_TITLE", taskTitle)
             putExtra("TASK_TIME", taskTime)
             putExtra("TASK_PRIORITY", taskPriority)
+            putExtra("ACTION_TYPE", actionData.type)
+            putExtra("ACTION_CONTACT_NAME", actionData.contactName)
+            putExtra("ACTION_CONTACT_PHONE", actionData.contactPhone)
+            putExtra("ACTION_MESSAGE", actionData.message)
         }
 
         val pendingIntent = PendingIntent.getBroadcast(

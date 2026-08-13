@@ -66,20 +66,20 @@ object StorageHelper {
             if (isImage) {
                 val success = MediaCompressionHelper.compressImageFromUri(context, uri, destinationFile)
                 if (!success) {
-                    // Fallback to plain copy
+                    // Fallback to plain copy via InternalStorageManager
                     cr.openInputStream(uri)?.use { input ->
                         destinationFile.outputStream().use { output ->
-                            input.copyTo(output)
+                            InternalStorageManager.copyStream(input, output)
                         }
                     }
                 }
                 destinationFile
             } else if (isAudio) {
-                // Memory efficient copy + gzip compression directly
+                // Memory efficient copy + gzip compression directly via InternalStorageManager
                 val tempRaw = File(context.cacheDir, "raw_upload_${System.currentTimeMillis()}")
                 cr.openInputStream(uri)?.use { input ->
                     tempRaw.outputStream().use { output ->
-                        input.copyTo(output)
+                        InternalStorageManager.copyStream(input, output)
                     }
                 }
                 
@@ -89,7 +89,7 @@ object StorageHelper {
                 if (success) compressedDestFile else {
                     cr.openInputStream(uri)?.use { input ->
                         destinationFile.outputStream().use { output ->
-                            input.copyTo(output)
+                            InternalStorageManager.copyStream(input, output)
                         }
                     }
                     destinationFile
@@ -97,7 +97,7 @@ object StorageHelper {
             } else {
                 cr.openInputStream(uri)?.use { input ->
                     destinationFile.outputStream().use { output ->
-                        input.copyTo(output)
+                        InternalStorageManager.copyStream(input, output)
                     }
                 }
                 destinationFile

@@ -100,7 +100,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 val email = prefs.getString("user_email", "") ?: ""
                 if (email.isNotBlank()) {
                     Log.i(TAG, "Received FCM SETTINGS_UPDATED signal. Pulling updated settings from Firestore...")
-                    com.example.api.UserSettingsSyncEngine.pullSettingsFromCloud(applicationContext, email)
+                    com.example.api.SameUserMultiDeviceSyncManager.pullSettingsFromCloud(applicationContext, email)
                 }
                 return
             }
@@ -113,7 +113,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 if (email.isNotBlank()) {
                     Log.i(TAG, "Received FCM live sync signal ($messageType). Pulling updated app data from cloud...")
                     val db = AppDatabase.getInstance(applicationContext)
-                    com.example.api.AppDataLiveSyncEngine.pullAllDataFromCloud(applicationContext, email, db)
+                    com.example.api.SameUserMultiDeviceSyncManager.fetchAndSyncAllData(applicationContext, email, db)
                     
                     if (messageType == "GDRIVE_SYNC_TRIGGER" && com.example.util.GoogleDriveSyncManager.hasDrivePermission(applicationContext)) {
                         CoroutineScope(Dispatchers.IO).launch {

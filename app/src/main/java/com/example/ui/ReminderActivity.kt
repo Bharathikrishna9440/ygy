@@ -28,6 +28,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Message
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -64,6 +67,10 @@ class ReminderActivity : ComponentActivity() {
     private var taskTitle: String = ""
     private var taskTime: String = ""
     private var taskPriority: String = "MEDIUM"
+    private var actionType: String = ""
+    private var actionContactName: String = ""
+    private var actionContactPhone: String = ""
+    private var actionMessage: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,6 +81,10 @@ class ReminderActivity : ComponentActivity() {
         taskTitle = intent.getStringExtra("TASK_TITLE") ?: "Task Reminder"
         taskTime = intent.getStringExtra("TASK_TIME") ?: ""
         taskPriority = intent.getStringExtra("TASK_PRIORITY") ?: "MEDIUM"
+        actionType = intent.getStringExtra("ACTION_TYPE") ?: ""
+        actionContactName = intent.getStringExtra("ACTION_CONTACT_NAME") ?: ""
+        actionContactPhone = intent.getStringExtra("ACTION_CONTACT_PHONE") ?: ""
+        actionMessage = intent.getStringExtra("ACTION_MESSAGE") ?: ""
 
         Log.d("ReminderActivity", "Reminder activity launched for task $taskId, priority: $taskPriority")
 
@@ -164,9 +175,41 @@ class ReminderActivity : ComponentActivity() {
                         }
                     }
 
+                    var actTypeState by remember { mutableStateOf(actionType) }
+                    var actNameState by remember { mutableStateOf(actionContactName) }
+                    var actPhoneState by remember { mutableStateOf(actionContactPhone) }
+                    var actMsgState by remember { mutableStateOf(actionMessage) }
+
+                    LaunchedEffect(taskId) {
+                        if (actTypeState.isEmpty() && taskId > 0) {
+                            withContext(Dispatchers.IO) {
+                                try {
+                                    val realTaskId = if (taskId >= 100) taskId / 100 else taskId
+                                    val db = AppDatabase.getInstance(applicationContext)
+                                    val t = db.taskDao().getTaskById(realTaskId)
+                                    if (t != null) {
+                                        val data = com.example.util.TaskActionHelper.parseActionData(t)
+                                        withContext(Dispatchers.Main) {
+                                            actTypeState = data.type
+                                            actNameState = data.contactName
+                                            actPhoneState = data.contactPhone
+                                            actMsgState = data.message
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("ReminderActivity", "Error loading action state: ${e.message}")
+                                }
+                            }
+                        }
+                    }
+
                     ReminderScreen(
                         title = taskTitle.substringBefore(" (").trim(),
                         time = taskTime,
+                        actionType = actTypeState,
+                        actionContactName = actNameState,
+                        actionContactPhone = actPhoneState,
+                        actionMessage = actMsgState,
                         onDismiss = {
                             stopAlert()
                             cancelNotification()
@@ -175,7 +218,8 @@ class ReminderActivity : ComponentActivity() {
                         onSnooze = { minutes ->
                             stopAlert()
                             cancelNotification()
-                            AlarmScheduler.scheduleSnooze(applicationContext, taskId, taskTitle, taskTime, taskPriority, minutes)
+                            val data = com.example.util.TaskActionData(actTypeState, actNameState, actPhoneState, actMsgState)
+                            AlarmScheduler.scheduleSnooze(applicationContext, taskId, taskTitle, taskTime, taskPriority, minutes, data)
                             finish()
                         },
                         onComplete = {
@@ -385,6 +429,10 @@ class ReminderActivity : ComponentActivity() {
     private fun ReminderScreen(
         title: String,
         time: String,
+        actionType: String = "",
+        actionContactName: String = "",
+        actionContactPhone: String = "",
+        actionMessage: String = "",
         onDismiss: () -> Unit,
         onSnooze: (Int) -> Unit,
         onComplete: () -> Unit
@@ -497,6 +545,180 @@ class ReminderActivity : ComponentActivity() {
                                 fontWeight = FontWeight.Normal,
                                 color = Color.White.copy(alpha = 0.6f)
                             )
+                        }
+                    }
+
+                    // Prominent Action Button for CALL / SMS / WHATSAPP if configured
+                    if (actionType.isNotEmpty() && actionContactPhone.isNotEmpty()) {
+                        val cleanPhone = actionContactPhone.replace(Regex("[^0-9+]"), "")
+                        val displayName = actionContactName.ifEmpty { actionContactPhone }
+
+                        when (actionType.uppercase()) {
+                            "CALL" -> {
+                                Button(
+                                    onClick = {
+                                        stopAlert()
+                                        cancelNotification()
+                                        try {
+                                            val callIntent = android.content.Intent(android.content.Intent.ACTION_CALL, android.net.Uri.parse("tel:$cleanPhone")).apply {
+                                                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                                            }
+                                            context.startActivity(callIntent)
+                                        } catch (e: SecurityException) {
+                                            val dialIntent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:$cleanPhone")).apply {
+                                                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                                            }
+                                            context.startActivity(dialIntent)
+                                        } catch (e: Exception) {
+                                            Log.e("ReminderActivity", "Error calling: ${e.message}")
+                                        }
+                                        finish()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E676)),
+                                    shape = RoundedCornerShape(24.dp),
+                                    modifier = Modifier
+                                        .width(220.dp)
+                                        .height(52.dp)
+                                        .testTag("reminder_action_call_btn")
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Call,
+                                            contentDescription = "Call",
+                                            tint = Color.Black,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Call $displayName",
+                                            color = Color.Black,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                            "SMS" -> {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.width(220.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            stopAlert()
+                                            cancelNotification()
+                                            try {
+                                                val smsIntent = android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:$cleanPhone")).apply {
+                                                    putExtra("sms_body", actionMessage)
+                                                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                context.startActivity(smsIntent)
+                                            } catch (e: Exception) {
+                                                Log.e("ReminderActivity", "Error sending SMS: ${e.message}")
+                                            }
+                                            finish()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E6FF3)),
+                                        shape = RoundedCornerShape(24.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(52.dp)
+                                            .testTag("reminder_action_msg_btn")
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Message,
+                                                contentDescription = "Message",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Message $displayName",
+                                                color = Color.White,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    if (actionMessage.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "\"$actionMessage\"",
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            fontSize = 11.sp,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 2,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
+                            "WHATSAPP" -> {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.width(220.dp)
+                                ) {
+                                    Button(
+                                        onClick = {
+                                            stopAlert()
+                                            cancelNotification()
+                                            try {
+                                                val url = "https://api.whatsapp.com/send?phone=$cleanPhone&text=${android.net.Uri.encode(actionMessage)}"
+                                                val waIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                                                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                context.startActivity(waIntent)
+                                            } catch (e: Exception) {
+                                                Log.e("ReminderActivity", "Error launching WhatsApp: ${e.message}")
+                                            }
+                                            finish()
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366)),
+                                        shape = RoundedCornerShape(24.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(52.dp)
+                                            .testTag("reminder_action_wa_btn")
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Send,
+                                                contentDescription = "WhatsApp",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "WhatsApp $displayName",
+                                                color = Color.White,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    if (actionMessage.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "\"$actionMessage\"",
+                                            color = Color.White.copy(alpha = 0.7f),
+                                            fontSize = 11.sp,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 2,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 

@@ -559,7 +559,7 @@ object StateReconciliationHelper {
         }
         
         try {
-            com.example.widget.WidgetUpdater.updateAllWidgets(context)
+            com.example.widget.WidgetManager.updateAllWidgets(context)
             Log.i(TAG, "Successfully triggered all widgets updates from reconciliation.")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to trigger widget updates from reconciliation", e)

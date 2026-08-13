@@ -12,7 +12,7 @@ class FriendsFocusWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
-        WidgetUpdater.updateFriendsFocusWidget(context)
+        WidgetManager.updateFriendsFocusWidget(context)
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -22,6 +22,6 @@ class FriendsFocusWidgetProvider : AppWidgetProvider() {
         newOptions: Bundle?
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        WidgetUpdater.updateFriendsFocusWidget(context)
+        WidgetManager.updateFriendsFocusWidget(context)
     }
 }

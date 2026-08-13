@@ -458,6 +458,13 @@ object SmartUpdateManager {
                     return@launch
                 }
 
+                // Save active focus session state to disk so timer can resume post-update
+                try {
+                    FocusTimerManager.saveActiveSessionState(context)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to save active session state prior to installation", e)
+                }
+
                 try {
                     com.example.util.AppCrashRollbackManager.backupCurrentWorkingApk(context)
                 } catch (e: Exception) {
@@ -513,7 +520,8 @@ object SmartUpdateManager {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         context.startActivity(intent)
-                        _updateStatus.value = SmartUpdateStatus.Error("Please enable 'Install unknown apps' permission and try again.")
+                        AppUpdateManager.setReadyApkPath(context, apkFile.absolutePath)
+                        _updateStatus.value = SmartUpdateStatus.ReadyToInstall(apkFile, false)
                         return@launch
                     }
                 }
@@ -527,6 +535,7 @@ object SmartUpdateManager {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
 
+                AppUpdateManager.setReadyApkPath(context, apkFile.absolutePath)
                 context.startActivity(intent)
                 _updateStatus.value = SmartUpdateStatus.ReadyToInstall(apkFile, false)
 

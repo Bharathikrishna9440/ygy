@@ -63,7 +63,9 @@ object GoogleRestApiHelper {
                 }
             }
             null
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
             Log.e(TAG, "Error obtaining Google OAuth2 token for REST calls: ${e.message}", e)
             null
         }

@@ -78,6 +78,7 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val tasks by viewModel.tasks.collectAsStateWithLifecycle()
     val customLists by viewModel.customLists.collectAsStateWithLifecycle()
     val financeTransactions by viewModel.financeTransactions.collectAsStateWithLifecycle()
+    val contacts by viewModel.contacts.collectAsStateWithLifecycle()
     val isSidebarOpen by viewModel.isLocalSidebarOpen.collectAsStateWithLifecycle()
 
     val pendingPayload by viewModel.pendingTaskCreationPayload.collectAsStateWithLifecycle()
@@ -85,6 +86,8 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     // Dialog / Editor states
     var showTaskEditorScreen by remember { mutableStateOf(false) }
     var editingTaskTarget by remember { mutableStateOf<Task?>(null) }
+    var showTaskActionDialog by remember { mutableStateOf(false) }
+    var selectedTaskForActionConfig by remember { mutableStateOf<Task?>(null) }
 
     val extSelectedTaskId by viewModel.selectedTaskId.collectAsStateWithLifecycle()
     LaunchedEffect(extSelectedTaskId) {
@@ -544,8 +547,8 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                         contract = ActivityResultContracts.StartActivityForResult()
                     ) { result ->
                         if (result.resultCode == android.app.Activity.RESULT_OK) {
-                            val task = com.google.android.gms.auth.api.signin.GoogleSignIn.getSignedInAccountFromIntent(result.data)
                             try {
+                                val task = com.google.android.gms.auth.api.signin.GoogleSignIn.getSignedInAccountFromIntent(result.data)
                                 val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
                                 if (account != null) {
                                     val email = account.email ?: ""
@@ -562,7 +565,7 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                     
                                     viewModel.syncGoogleTasks(context)
                                 }
-                            } catch (e: Exception) {
+                            } catch (e: Throwable) {
                                 android.util.Log.e("TaskEngineView", "Google Sign-In failed", e)
                             }
                         }
@@ -570,7 +573,7 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
 
                     IconButton(
                         onClick = {
-                            val googleAccount = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context)
+                            val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
                             if (googleAccount == null) {
                                 try {
                                     val taskScope = com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/tasks")
@@ -588,7 +591,7 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                     val gso = gsoBuilder.build()
                                     val googleSignInClient = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso)
                                     googleSignInLauncher.launch(googleSignInClient.signInIntent)
-                                } catch (e: Exception) {
+                                } catch (e: Throwable) {
                                     android.widget.Toast.makeText(context, "Could not launch Google Sign-In automatically.", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             } else {
@@ -1178,9 +1181,35 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                                             )
                                                         }
                                                     }
+
+                                                    // 5. Action Symbol for Call/SMS/WhatsApp action
+                                                    val parsedTaskAction = remember(task.description, task.actionType) {
+                                                        com.example.util.TaskActionHelper.parseActionData(task)
+                                                    }
+                                                    if (parsedTaskAction.type.isNotEmpty()) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            val (actIcon, actColor, actLabel) = when (parsedTaskAction.type.uppercase()) {
+                                                                "CALL" -> Triple("📞", Color(0xFF00E676), "Call ${parsedTaskAction.contactName.ifEmpty { parsedTaskAction.contactPhone }}")
+                                                                "SMS" -> Triple("💬", Color(0xFF2E6FF3), "SMS ${parsedTaskAction.contactName.ifEmpty { parsedTaskAction.contactPhone }}")
+                                                                "WHATSAPP" -> Triple("🟢", Color(0xFF25D366), "WA Msg ${parsedTaskAction.contactName.ifEmpty { parsedTaskAction.contactPhone }}")
+                                                                else -> Triple("⚡", WaterBlue, "Action")
+                                                            }
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .clip(RoundedCornerShape(4.dp))
+                                                                    .background(actColor.copy(alpha = 0.2f))
+                                                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                            ) {
+                                                                Text(text = "$actIcon $actLabel", color = actColor, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
-                                            
+
                                             val combinedText = task.title + " " + task.description
                                             val hashTags = remember(combinedText) {
                                                 Regex("""#\w+""").findAll(combinedText).map { it.value }.distinct().toList()
@@ -1188,9 +1217,9 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                             val contactTags = remember(combinedText) {
                                                 Regex("""@\w+""").findAll(combinedText).map { it.value }.distinct().toList()
                                             }
-                                            
+
                                             CompletionPillsRow(task, viewModel)
-                                            
+
                                             if (hashTags.isNotEmpty() || contactTags.isNotEmpty()) {
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 Row(
@@ -1218,6 +1247,70 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                                         }
                                                     }
                                                 }
+                                            }
+                                        }
+
+                                        // 3-dots action menu for task row
+                                        var showTaskRowMenu by remember { mutableStateOf(false) }
+                                        Box(modifier = Modifier.padding(start = 4.dp, end = 2.dp)) {
+                                            IconButton(
+                                                onClick = { showTaskRowMenu = true },
+                                                modifier = Modifier.size(28.dp).testTag("task_3dots_${task.id}")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.MoreVert,
+                                                    contentDescription = "Task Actions",
+                                                    tint = Color.LightGray.copy(alpha = 0.6f),
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+
+                                            DropdownMenu(
+                                                expanded = showTaskRowMenu,
+                                                onDismissRequest = { showTaskRowMenu = false },
+                                                modifier = Modifier.background(Color(0xFF1E1E22), RoundedCornerShape(12.dp))
+                                            ) {
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Icon(Icons.Default.FlashOn, contentDescription = null, tint = WaterBlue, modifier = Modifier.size(16.dp))
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text("Action", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        showTaskRowMenu = false
+                                                        selectedTaskForActionConfig = task
+                                                        showTaskActionDialog = true
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Icon(Icons.Default.Edit, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(16.dp))
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text("Edit Task", color = Color.White, fontSize = 13.sp)
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        showTaskRowMenu = false
+                                                        editingTaskTarget = task
+                                                        showTaskEditorScreen = true
+                                                    }
+                                                )
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFF44336), modifier = Modifier.size(16.dp))
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text("Delete Task", color = Color(0xFFF44336), fontSize = 13.sp)
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        showTaskRowMenu = false
+                                                        viewModel.deleteTask(task)
+                                                    }
+                                                )
                                             }
                                         }
                                     }
@@ -1976,6 +2069,32 @@ fun TaskEngineView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                 viewModel.clearPendingTaskCreation()
             },
             pendingPayload = pendingPayload
+        )
+    }
+
+    if (showTaskActionDialog && selectedTaskForActionConfig != null) {
+        TaskActionConfigDialog(
+            task = selectedTaskForActionConfig!!,
+            contacts = contacts,
+            onSave = { updatedAction ->
+                val taskToUpdate = selectedTaskForActionConfig!!
+                val newDesc = com.example.util.TaskActionHelper.applyActionToDescription(taskToUpdate.description, updatedAction)
+                val updatedTask = taskToUpdate.copy(
+                    actionType = updatedAction.type,
+                    actionContactName = updatedAction.contactName,
+                    actionContactPhone = updatedAction.contactPhone,
+                    actionMessage = updatedAction.message,
+                    description = newDesc
+                )
+                viewModel.updateTask(updatedTask)
+                com.example.util.AlarmScheduler.scheduleReminder(context, updatedTask)
+                showTaskActionDialog = false
+                selectedTaskForActionConfig = null
+            },
+            onDismiss = {
+                showTaskActionDialog = false
+                selectedTaskForActionConfig = null
+            }
         )
     }
 
@@ -5630,6 +5749,7 @@ fun CalendarView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
 
     val tasks by viewModel.tasks.collectAsState()
     val journalEntries by viewModel.journalEntries.collectAsState()
+    val systemCalendarEvents by viewModel.systemCalendarEvents.collectAsState()
 
     val calendarViewModeStr by viewModel.calendarViewModeStr.collectAsState()
     val currentViewMode = when (calendarViewModeStr) {
@@ -5880,6 +6000,9 @@ fun CalendarView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
             val hasWrite = androidx.core.content.ContextCompat.checkSelfPermission(
                 context, android.Manifest.permission.WRITE_CALENDAR
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (hasRead) {
+                viewModel.loadSystemCalendarEvents(context)
+            }
             if (hasRead && hasWrite) {
                 viewModel.syncGoogleCalendar(context)
             }
@@ -6113,6 +6236,8 @@ fun CalendarView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                             
                                             val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(date)
                                             val dayTasks = tasks.filter { it.dueDateString == dateStr }
+                                            val dayEvents = systemCalendarEvents.filter { it.dateStr == dateStr }
+                                            val dayHolidays = dayEvents.filter { it.isHolidayOrFestival }
 
                                             val matchingJournalEntry = journalEntries.find { it.dateString == dateStr }
                                             val photoUrl = matchingJournalEntry?.attachmentsJson
@@ -6171,13 +6296,26 @@ fun CalendarView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                                             fontSize = 11.sp,
                                                             fontWeight = FontWeight.Bold
                                                         )
-                                                        if (dayTasks.isNotEmpty()) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(6.dp)
-                                                                    .clip(CircleShape)
-                                                                    .background(WaterBlue)
-                                                            )
+                                                        Row(
+                                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            if (dayHolidays.isNotEmpty()) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .size(6.dp)
+                                                                        .clip(CircleShape)
+                                                                        .background(Color(0xFFAB47BC))
+                                                                )
+                                                            }
+                                                            if (dayTasks.isNotEmpty()) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .size(6.dp)
+                                                                        .clip(CircleShape)
+                                                                        .background(WaterBlue)
+                                                                )
+                                                            }
                                                         }
                                                     }
 
@@ -6186,7 +6324,25 @@ fun CalendarView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                                         modifier = Modifier.weight(1f),
                                                         verticalArrangement = Arrangement.spacedBy(2.dp)
                                                     ) {
-                                                        val displayedTasks = dayTasks.take(2)
+                                                        dayHolidays.take(1).forEach { holiday ->
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .clip(RoundedCornerShape(3.dp))
+                                                                    .background(Color(0xFF8E24AA).copy(alpha = 0.25f))
+                                                                    .padding(horizontal = 3.dp, vertical = 2.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = "🎉 ${holiday.title}",
+                                                                    color = Color(0xFFE1BEE7),
+                                                                    fontSize = 8.sp,
+                                                                    maxLines = 1,
+                                                                    overflow = TextOverflow.Ellipsis,
+                                                                    fontWeight = FontWeight.Bold
+                                                                )
+                                                            }
+                                                        }
+                                                        val displayedTasks = dayTasks.take(if (dayHolidays.isNotEmpty()) 1 else 2)
                                                         displayedTasks.forEach { task ->
                                                             val priorityColor = when (task.priority.uppercase()) {
                                                                 "HIGH" -> Color(0xFFF44336)
@@ -7041,6 +7197,9 @@ fun CalendarView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(date)
         val formattedHeader = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault()).format(date)
         val dayTasks = tasks.filter { it.dueDateString == dateStr }
+        val dayEvents = systemCalendarEvents.filter { it.dateStr == dateStr }
+        val dayHolidays = dayEvents.filter { it.isHolidayOrFestival }
+        val dayOtherEvents = dayEvents.filter { !it.isHolidayOrFestival }
 
         AlertDialog(
             onDismissRequest = { selectedDayForDetail = null },
@@ -7050,25 +7209,100 @@ fun CalendarView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                     Text(formattedHeader, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             },
-            containerColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.05f),
+            containerColor = androidx.compose.ui.graphics.Color(0xFF1E1E24),
             text = {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 280.dp)
+                        .heightIn(max = 340.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (dayTasks.isEmpty()) {
+                    if (dayHolidays.isNotEmpty()) {
+                        Text("🎉 Festivals & Holidays", fontSize = 12.sp, color = Color(0xFFAB47BC), fontWeight = FontWeight.Bold)
+                        dayHolidays.forEach { holiday ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF2C1E38)),
+                                border = BorderStroke(0.5.dp, Color(0xFFAB47BC).copy(alpha = 0.4f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                        Text("🎉", fontSize = 16.sp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text(holiday.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            if (holiday.calendarDisplayName.isNotEmpty()) {
+                                                Text(holiday.calendarDisplayName, color = Color(0xFFCE93D8), fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color(0xFF8E24AA).copy(alpha = 0.3f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("Holiday", color = Color(0xFFE1BEE7), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (dayOtherEvents.isNotEmpty()) {
+                        Text("📅 Calendar Events", fontSize = 12.sp, color = WaterBlue, fontWeight = FontWeight.Bold)
+                        dayOtherEvents.forEach { event ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF1A2634)),
+                                border = BorderStroke(0.5.dp, WaterBlue.copy(alpha = 0.4f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                        Icon(Icons.Default.Event, contentDescription = null, tint = WaterBlue, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text(event.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            if (event.description.isNotEmpty()) {
+                                                Text(event.description, color = Color.LightGray, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(WaterBlue.copy(alpha = 0.2f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text("Calendar", color = WaterBlue, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (dayTasks.isEmpty() && dayHolidays.isEmpty() && dayOtherEvents.isEmpty()) {
                          Box(
                              modifier = Modifier
                                  .fillMaxWidth()
                                  .padding(vertical = 12.dp),
                              contentAlignment = Alignment.Center
                          ) {
-                             Text("No tasks scheduled for this day.", color = Color.Gray, fontSize = 13.sp)
+                             Text("No tasks or events scheduled for this day.", color = Color.Gray, fontSize = 13.sp)
                          }
                     } else {
+                        if (dayTasks.isNotEmpty() && (dayHolidays.isNotEmpty() || dayOtherEvents.isNotEmpty())) {
+                            Text("📋 Tasks", fontSize = 12.sp, color = WaterBlue, fontWeight = FontWeight.Bold)
+                        }
                         dayTasks.forEach { task ->
                             Card(
                                 modifier = Modifier.fillMaxWidth().clickable {
@@ -7584,6 +7818,368 @@ fun MiniMonthGrid(
                                 Spacer(modifier = Modifier.weight(1f))
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TaskActionConfigDialog(
+    task: com.example.data.Task,
+    contacts: List<com.example.data.Contact>,
+    onSave: (com.example.util.TaskActionData) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val existingAction = remember(task) {
+        com.example.util.TaskActionHelper.parseActionData(task)
+    }
+
+    var selectedType by remember { mutableStateOf(existingAction.type.ifEmpty { "CALL" }) }
+    var selectedContactName by remember { mutableStateOf(existingAction.contactName) }
+    var selectedContactPhone by remember { mutableStateOf(existingAction.contactPhone) }
+    var customMessage by remember { mutableStateOf(existingAction.message) }
+    var contactSearchQuery by remember { mutableStateOf("") }
+    var isSelectingContact by remember { mutableStateOf(false) }
+
+    val filteredContacts = remember(contacts, contactSearchQuery) {
+        if (contactSearchQuery.isBlank()) {
+            contacts
+        } else {
+            contacts.filter {
+                it.firstName.contains(contactSearchQuery, ignoreCase = true) ||
+                it.lastName.contains(contactSearchQuery, ignoreCase = true) ||
+                it.phone.contains(contactSearchQuery, ignoreCase = true)
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight()
+                .padding(16.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xFF1C1C1E),
+            tonalElevation = 8.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF2E6FF3).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FlashOn,
+                                contentDescription = null,
+                                tint = Color(0xFF2E6FF3),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Reminder Action",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Action to launch when reminder triggers",
+                                color = Color.Gray,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Gray)
+                    }
+                }
+
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+
+                // Action Type Selector (CALL, MESSAGE, WA MSG, NONE)
+                Text(
+                    text = "SELECT ACTION TYPE",
+                    color = Color(0xFF2E6FF3),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        "CALL" to "📞 Call",
+                        "SMS" to "💬 SMS",
+                        "WHATSAPP" to "🟢 WA Msg",
+                        "" to "🚫 None"
+                    ).forEach { (typeKey, typeLabel) ->
+                        val isSelected = selectedType.equals(typeKey, ignoreCase = true)
+                        val badgeColor = when (typeKey) {
+                            "CALL" -> Color(0xFF00E676)
+                            "SMS" -> Color(0xFF2E6FF3)
+                            "WHATSAPP" -> Color(0xFF25D366)
+                            else -> Color.Gray
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSelected) badgeColor.copy(alpha = 0.25f) else Color(0xFF2C2C2E))
+                                .border(
+                                    width = if (isSelected) 1.5.dp else 0.dp,
+                                    color = if (isSelected) badgeColor else Color.Transparent,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable { selectedType = typeKey }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = typeLabel,
+                                color = if (isSelected) Color.White else Color.Gray,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                // If an action type is selected (CALL, SMS, or WHATSAPP)
+                if (selectedType.isNotEmpty()) {
+                    // Contact Selection Card
+                    Text(
+                        text = "TARGET CONTACT",
+                        color = Color(0xFF2E6FF3),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF2C2C2E))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (selectedContactPhone.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF2E6FF3), modifier = Modifier.size(20.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = selectedContactName.ifEmpty { "Contact" },
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = selectedContactPhone,
+                                            color = Color.LightGray,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                }
+                                TextButton(onClick = { isSelectingContact = !isSelectingContact }) {
+                                    Text(if (isSelectingContact) "Done" else "Change", color = Color(0xFF2E6FF3), fontSize = 12.sp)
+                                }
+                            }
+                        } else {
+                            Button(
+                                onClick = { isSelectingContact = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E6FF3).copy(alpha = 0.2f)),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.PersonAdd, contentDescription = null, tint = Color(0xFF2E6FF3), modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Select Contact to ${if (selectedType == "CALL") "Call" else "Message"}", color = Color(0xFF2E6FF3))
+                            }
+                        }
+
+                        // Manual Phone & Name Input
+                        OutlinedTextField(
+                            value = selectedContactName,
+                            onValueChange = { selectedContactName = it },
+                            label = { Text("Contact Name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF2E6FF3),
+                                unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = selectedContactPhone,
+                            onValueChange = { selectedContactPhone = it },
+                            label = { Text("Phone Number") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF2E6FF3),
+                                unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+
+                        // Contact Picker dropdown search list
+                        if (isSelectingContact) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 180.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF1C1C1E))
+                                    .padding(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = contactSearchQuery,
+                                    onValueChange = { contactSearchQuery = it },
+                                    placeholder = { Text("Search app contacts...", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFF2E6FF3),
+                                        unfocusedBorderColor = Color.Gray.copy(alpha = 0.3f),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    )
+                                )
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                if (filteredContacts.isEmpty()) {
+                                    Text(
+                                        text = "No saved contacts found. Type phone number above.",
+                                        color = Color.Gray,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(8.dp)
+                                    )
+                                } else {
+                                    LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                                        items(filteredContacts) { c ->
+                                            val fullName = "${c.firstName} ${c.lastName}".trim()
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        selectedContactName = fullName
+                                                        selectedContactPhone = c.phone
+                                                        isSelectingContact = false
+                                                    }
+                                                    .padding(vertical = 6.dp, horizontal = 8.dp),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(fullName, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                                Text(c.phone, color = Color.Gray, fontSize = 11.sp)
+                                            }
+                                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Custom Text Message Input for SMS & WHATSAPP
+                    if (selectedType == "SMS" || selectedType == "WHATSAPP") {
+                        Text(
+                            text = "CUSTOM MESSAGE TO TEXT",
+                            color = Color(0xFF2E6FF3),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+
+                        OutlinedTextField(
+                            value = customMessage,
+                            onValueChange = { customMessage = it },
+                            placeholder = { Text("Enter message text to send automatically...", fontSize = 12.sp) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(90.dp),
+                            maxLines = 3,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF2E6FF3),
+                                unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White
+                            )
+                        )
+                        Text(
+                            text = "This text will be automatically typed when you press the action button in the reminder screen.",
+                            color = Color.Gray,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Bottom Action Buttons (Cancel / Save Action)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", color = Color.Gray)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            val actionData = if (selectedType.isEmpty()) {
+                                com.example.util.TaskActionData()
+                            } else {
+                                com.example.util.TaskActionData(
+                                    type = selectedType,
+                                    contactName = selectedContactName,
+                                    contactPhone = selectedContactPhone,
+                                    message = customMessage
+                                )
+                            }
+                            onSave(actionData)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E6FF3)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Save Action", color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 }
             }

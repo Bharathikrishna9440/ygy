@@ -16,7 +16,7 @@ class PomodoroWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
-        WidgetUpdater.updatePomodoroWidget(context)
+        WidgetManager.updatePomodoroWidget(context)
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -26,7 +26,7 @@ class PomodoroWidgetProvider : AppWidgetProvider() {
         newOptions: Bundle?
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        WidgetUpdater.updatePomodoroWidget(context)
+        WidgetManager.updatePomodoroWidget(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -52,7 +52,7 @@ class PomodoroWidgetProvider : AppWidgetProvider() {
                         FocusTimerManager.startTimer(context, isResuming = isPausedOrMidSession)
                     }
                 }
-                WidgetUpdater.updateAllWidgets(context)
+                WidgetManager.updateAllWidgets(context)
             }
             "com.example.widget.ACTION_POMO_BREAK" -> {
                 if (FocusTimerManager.isFocusPhase.value) {
@@ -60,17 +60,17 @@ class PomodoroWidgetProvider : AppWidgetProvider() {
                 } else {
                     FocusTimerManager.skipOrEndBreak(context)
                 }
-                WidgetUpdater.updateAllWidgets(context)
+                WidgetManager.updateAllWidgets(context)
             }
             "com.example.widget.ACTION_POMO_RESET" -> {
                 FocusTimerManager.resetTimer(context, saveSession = true)
-                WidgetUpdater.updateAllWidgets(context)
+                WidgetManager.updateAllWidgets(context)
             }
             Intent.ACTION_TIME_TICK,
             Intent.ACTION_DATE_CHANGED,
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED -> {
-                WidgetUpdater.updatePomodoroWidget(context, isPartialUpdate = true)
+                WidgetManager.updatePomodoroWidget(context, isPartialUpdate = true)
             }
         }
     }

@@ -110,7 +110,7 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     var googleDriveAboutInfo by remember { mutableStateOf<org.json.JSONObject?>(null) }
 
     // Google Drive Integration State
-    val googleAccount = remember { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) }
+    val googleAccount = remember { try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null } }
     var hasPermission by remember { mutableStateOf(com.example.util.GoogleDriveSyncManager.hasDrivePermission(context)) }
     var isOperating by remember { mutableStateOf(false) }
     var syncMessage by remember { mutableStateOf<String?>(null) }
@@ -438,8 +438,10 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     }
 
     // Navigation and folder states
-    var activeExplorerTab by remember { mutableStateOf("Folders") } // "Folders" or "Flat View"
-    var activeFolder by remember { mutableStateOf<String?>(null) } // "Journal", "Tasks", "Contacts", "General", "Google Sheets", "Google Docs", "Google Drive", "Google Keep"
+    var activeExplorerTab by remember { mutableStateOf("Files Structure") } // "Files Structure" (Tab 1) or "Activity Logs" (Tab 2)
+    var activeFolder by remember { mutableStateOf<String?>(null) } // "Private / Personal", "Private / App Data", "Shared", etc.
+    var fileToCopy by remember { mutableStateOf<ExplorerFile?>(null) }
+    var fileToMove by remember { mutableStateOf<ExplorerFile?>(null) }
     val friendsPathStack = remember { mutableStateListOf<String>() }
 
     val targetFileExplorerPath by viewModel.targetFileExplorerPath.collectAsState()
@@ -864,7 +866,7 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                 }
             }
 
-            // Tab Selector: Folders vs All Files Flat View
+            // Top Tab Selector: Files Structure (Tab 1) vs Activity Logs (Tab 2)
             if (activeFolder == null) {
                 Row(
                     modifier = Modifier
@@ -872,7 +874,7 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                         .padding(bottom = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    listOf("Folders", "Flat View").forEach { tab ->
+                    listOf("Files Structure", "Activity Logs").forEach { tab ->
                         val isTabSelected = activeExplorerTab == tab
                         Box(
                             modifier = Modifier
@@ -893,7 +895,7 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = if (tab == "Folders") Icons.Default.Folder else Icons.Default.GridOn,
+                                    imageVector = if (tab == "Files Structure") Icons.Default.FolderZip else Icons.Default.ReceiptLong,
                                     contentDescription = null,
                                     tint = if (isTabSelected) WaterBlue else Color.LightGray,
                                     modifier = Modifier.size(18.dp)
@@ -910,11 +912,13 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                 }
             }
 
-            if (activeExplorerTab == "Folders") {
+            if (activeExplorerTab == "Activity Logs") {
+                ActivityLogsView(modifier = Modifier.weight(1f))
+            } else {
                 if (activeFolder == null) {
-                    // Folder Dashboard
+                    // Folder Dashboard: PRIVATE vs SHARED Structure
                     Text(
-                        text = "CATEGORIZED FOLDERS",
+                        text = "EXPLORER STRUCTURE (PRIVATE & SHARED)",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.Gray,
@@ -927,7 +931,7 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             .weight(1f)
                             .verticalScroll(rememberScrollState())
                     ) {
-                        // SECTION 1: APP DATA (LOCAL STORAGE)
+                        // SECTION 1: PRIVATE FOLDERS (USER DEVICE & PRIVATE DRIVE)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -941,91 +945,104 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Smartphone,
+                                    imageVector = Icons.Default.Lock,
                                     contentDescription = null,
                                     tint = Color(0xFF81C784),
                                     modifier = Modifier.size(12.dp)
                                 )
                             }
                             Text(
-                                text = "APP DATA (LOCAL STORAGE)",
+                                text = "🔒 PRIVATE FOLDERS (USER DEVICE & PRIVATE DRIVE)",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF81C784)
                             )
                         }
 
-                        val appDataFolders = listOf(
-                            Triple("Favorites", folderFavoriteFiles.size, Color(0xFFEF5350)),
-                            Triple("General", folderGeneralFiles.size, Color(0xFFFFB74D)),
-                            Triple("Journal", folderJournalFiles.size, Color(0xFFE57373)),
-                            Triple("Tasks", folderTaskFiles.size, Color(0xFF81C784)),
-                            Triple("Contacts", folderContactFiles.size, Color(0xFF64B5F6)),
-                            Triple("Friends", folderFriendsFiles.size, Color(0xFFAB47BC))
-                        )
-
-                        appDataFolders.forEach { (name, count, color) ->
-                            val folderIcon = when (name) {
-                                "Favorites" -> Icons.Default.Favorite
-                                "Journal" -> Icons.Default.Book
-                                "Tasks" -> Icons.Default.TaskAlt
-                                "Contacts" -> Icons.Default.People
-                                "Friends" -> Icons.Default.PeopleOutline
-                                else -> Icons.Default.FolderOpen
-                            }
-
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { 
-                                        if (name == "Friends") friendsPathStack.clear()
-                                        activeFolder = name 
-                                    }
-                                    .testTag("folder_item_$name"),
-                                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                        // App Data Folder Card
+                        val appDataCount = folderJournalFiles.size + folderTaskFiles.size + folderContactFiles.size + folderFavoriteFiles.size
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { activeFolder = "Private / App Data" }
+                                .testTag("folder_item_app_data"),
+                            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF81C784).copy(alpha = 0.3f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFF2E7D32).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(color.copy(alpha = 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(imageVector = folderIcon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
-                                    }
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(text = name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(text = "$count items", color = Color.Gray, fontSize = 11.sp)
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color(0xFF2E7D32).copy(alpha = 0.2f))
-                                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Icon(Icons.Default.Smartphone, contentDescription = null, tint = Color(0xFF81C784), modifier = Modifier.size(10.dp))
-                                            Text("App Data", color = Color(0xFF81C784), fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Icon(Icons.Default.ChevronRight, contentDescription = "Open Folder", tint = Color.Gray.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
+                                    Icon(imageVector = Icons.Default.Smartphone, contentDescription = null, tint = Color(0xFF81C784), modifier = Modifier.size(22.dp))
                                 }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = "App Data", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(text = "Journal uploads, task files, contacts & DB backups ($appDataCount items)", color = Color.Gray, fontSize = 11.sp)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF2E7D32).copy(alpha = 0.25f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Private Data", color = Color(0xFF81C784), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
                             }
                         }
 
-                        // SECTION 2: GOOGLE DRIVE (CLOUD STORAGE)
+                        // Personal Folder Card
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { activeFolder = "Private / Personal" }
+                                .testTag("folder_item_personal"),
+                            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF64B5F6).copy(alpha = 0.3f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFF1565C0).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(imageVector = Icons.Default.Person, contentDescription = null, tint = Color(0xFF64B5F6), modifier = Modifier.size(22.dp))
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = "Personal", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(text = "User uploads localized to device & personal Google Drive (${folderGeneralFiles.size} items)", color = Color.Gray, fontSize = 11.sp)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF1565C0).copy(alpha = 0.25f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Personal Uploads", color = Color(0xFF64B5F6), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        // SECTION 2: SHARED FOLDERS (GROUP & ALL USERS ACCESS)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1035,84 +1052,122 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                 modifier = Modifier
                                     .size(20.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF1565C0).copy(alpha = 0.25f)),
+                                    .background(Color(0xFF8E24AA).copy(alpha = 0.25f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Cloud,
+                                    imageVector = Icons.Default.Groups,
                                     contentDescription = null,
-                                    tint = Color(0xFF64B5F6),
+                                    tint = Color(0xFFBA68C8),
                                     modifier = Modifier.size(12.dp)
                                 )
                             }
                             Text(
-                                text = "GOOGLE DRIVE (CLOUD STORAGE)",
+                                text = "👥 SHARED FOLDERS (ALL USERS ACCESSIBLE)",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF64B5F6)
+                                color = Color(0xFFBA68C8)
                             )
                         }
 
-                        val driveFolders = listOf(
+                        val sharedCount = folderFriendsFiles.size + googleDriveFiles.size + googleDocs.size + googleSheets.size
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { activeFolder = "Shared" }
+                                .testTag("folder_item_shared"),
+                            colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBA68C8).copy(alpha = 0.3f))
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color(0xFF8E24AA).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(imageVector = Icons.Default.FolderShared, contentDescription = null, tint = Color(0xFFBA68C8), modifier = Modifier.size(22.dp))
+                                }
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = "Shared", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(text = "Shared files, study materials, and group drive links ($sharedCount items)", color = Color.Gray, fontSize = 11.sp)
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFF8E24AA).copy(alpha = 0.25f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Shared Access", color = Color(0xFFBA68C8), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(18.dp))
+                            }
+                        }
+
+                        // Subcategory Quick Navigation Grid
+                        Text(
+                            text = "QUICK CATEGORIES & INTEGRATIONS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)
+                        )
+
+                        val quickCategories = listOf(
+                            Triple("Journal", folderJournalFiles.size, Color(0xFFE57373)),
+                            Triple("Tasks", folderTaskFiles.size, Color(0xFF81C784)),
+                            Triple("Contacts", folderContactFiles.size, Color(0xFF64B5F6)),
+                            Triple("Friends", folderFriendsFiles.size, Color(0xFFAB47BC)),
                             Triple("Google Drive", googleDriveFiles.size, Color(0xFFF4B400)),
                             Triple("Google Docs", googleDocs.size, Color(0xFF4285F4)),
                             Triple("Google Sheets", googleSheets.size, Color(0xFF0F9D58)),
                             Triple("Keep Notes", folderGoogleNotesFiles.size, Color(0xFFFF9E0F))
                         )
 
-                        driveFolders.forEach { (name, count, color) ->
-                            val folderIcon = when (name) {
-                                "Google Sheets" -> Icons.Default.InsertDriveFile
-                                "Google Docs" -> Icons.Default.Description
-                                "Google Drive" -> Icons.Default.CloudQueue
-                                "Keep Notes" -> Icons.Default.NoteAlt
-                                else -> Icons.Default.FolderOpen
-                            }
-
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { activeFolder = name }
-                                    .testTag("folder_item_$name"),
-                                colors = CardDefaults.cardColors(containerColor = SurfaceCard),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                        quickCategories.chunked(2).forEach { pair ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
+                                pair.forEach { (name, count, color) ->
+                                    Card(
                                         modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(color.copy(alpha = 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(imageVector = folderIcon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
-                                    }
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(text = name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(text = "$count items", color = Color.Gray, fontSize = 11.sp)
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color(0xFF1565C0).copy(alpha = 0.2f))
-                                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                                        contentAlignment = Alignment.Center
+                                            .weight(1f)
+                                            .clickable { activeFolder = name }
+                                            .testTag("folder_item_$name"),
+                                        colors = CardDefaults.cardColors(containerColor = SurfaceCard),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
                                     ) {
                                         Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            modifier = Modifier.padding(10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(Icons.Default.Cloud, contentDescription = null, tint = Color(0xFF64B5F6), modifier = Modifier.size(10.dp))
-                                            Text("Google Drive", color = Color(0xFF64B5F6), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(30.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(color.copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Folder, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(text = name, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                                Text(text = "$count items", color = Color.Gray, fontSize = 10.sp)
+                                            }
                                         }
                                     }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Icon(Icons.Default.ChevronRight, contentDescription = "Open Folder", tint = Color.Gray.copy(alpha = 0.5f), modifier = Modifier.size(18.dp))
+                                }
+                                if (pair.size == 1) {
+                                    Spacer(modifier = Modifier.weight(1f))
                                 }
                             }
                         }
@@ -1148,7 +1203,85 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             )
                         }
                                   when (activeFolder) {
-                        "Google Sheets" -> {
+                            "Private / App Data", "Private / Personal", "Shared", "Journal", "Tasks", "Contacts", "Favorites", "General" -> {
+                                val googleExplorerFiles = googleDriveFiles.map { driveFile ->
+                                    ExplorerFile(
+                                        name = driveFile.name,
+                                        type = "cloud",
+                                        dateText = "Drive",
+                                        timestamp = System.currentTimeMillis(),
+                                        sourceName = "Google Drive",
+                                        fileMime = driveFile.mimeType ?: "application/octet-stream",
+                                        path = driveFile.webViewLink ?: "",
+                                        onClick = {},
+                                        appFileRef = null,
+                                        googleDriveRef = driveFile
+                                    )
+                                }
+                                val currentFolderFiles: List<ExplorerFile> = when (activeFolder) {
+                                    "Private / App Data" -> folderJournalFiles + folderTaskFiles + folderContactFiles + folderFavoriteFiles
+                                    "Private / Personal" -> folderGeneralFiles
+                                    "Shared" -> folderFriendsFiles + googleExplorerFiles
+                                    "Journal" -> folderJournalFiles
+                                    "Tasks" -> folderTaskFiles
+                                    "Contacts" -> folderContactFiles
+                                    "Favorites" -> folderFavoriteFiles
+                                    else -> folderGeneralFiles
+                                }
+
+                                val folderInfo = when (activeFolder) {
+                                    "Private / App Data" -> Triple("Private / App Data", "App data including journal uploads, task files, contacts & DB backups", Color(0xFF81C784))
+                                    "Private / Personal" -> Triple("Private / Personal", "User uploads localized to device & personal Google Drive", Color(0xFF64B5F6))
+                                    "Shared" -> Triple("Shared", "Files accessible to all users & shared group materials", Color(0xFFBA68C8))
+                                    else -> Triple(activeFolder ?: "Folder", "Files stored in this location", WaterBlue)
+                                }
+
+                                FileDocumentStructureView(
+                                    folderHeading = folderInfo.first,
+                                    folderDescription = folderInfo.second,
+                                    folderIcon = Icons.Default.Folder,
+                                    folderColor = folderInfo.third,
+                                    files = currentFolderFiles,
+                                    onBackClick = { activeFolder = null },
+                                    onFileClick = { file -> activeFileForOptions = file },
+                                    onOptionsClick = { file -> activeFileForOptions = file },
+                                    onCopyClick = { file -> fileToCopy = file },
+                                    onMoveClick = { file -> fileToMove = file },
+                                    onRenameClick = { file ->
+                                        fileToRename = file
+                                        val extension = if (file.name.contains(".")) "." + file.name.substringAfterLast(".") else ""
+                                        renameInputName = file.name.substringBeforeLast(".")
+                                        renameExtension = extension
+                                    },
+                                    onDeleteClick = { file ->
+                                        val fileKey = file.appFileRef?.uriString?.ifEmpty { file.path } ?: file.path
+                                        val currentFolder = file.path.ifEmpty { "Private / Personal" }
+                                        val formattedSize = if (file.appFileRef != null && file.appFileRef.size > 0) {
+                                            String.format(java.util.Locale.US, "%.1f MB", file.appFileRef.size / (1024.0 * 1024.0))
+                                        } else "1.2 MB"
+
+                                        if (file.appFileRef != null) {
+                                            viewModel.deleteFile(file.appFileRef)
+                                        }
+
+                                        com.example.util.FileActivityLogger.logAction(
+                                            context = context,
+                                            fileKey = fileKey,
+                                            fileName = file.name,
+                                            actionType = "DELETE",
+                                            sourceFolder = currentFolder,
+                                            userEmail = "bharathikrishna9440@gmail.com",
+                                            userName = "Bharathi Krishna",
+                                            fileSizeFormatted = formattedSize,
+                                            fileFormat = file.fileMime
+                                        )
+
+                                        android.widget.Toast.makeText(context, "Deleted ${file.name}", android.widget.Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            "Google Sheets" -> {
                             // Render Google Sheets Folder View
                             if (showCreateSheetDialog) {
                                 AlertDialog(
@@ -2011,154 +2144,6 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                             }
                                         }
                                     }
-                                }
-                            }
-                        }
-                    }        }
-                }
-            } else {
-                // Flat View (Original Mode)
-                Text(
-                    text = "FILES LIBRARY (${filteredFiles.size} ITEMS)",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-
-                // Original Filters bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    filterOptions.forEach { filter ->
-                        val isSelected = selectedFilter == filter
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(if (isSelected) WaterBlue else SurfaceCard)
-                                .border(1.dp, if (isSelected) WaterBlue else Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
-                                .clickable { selectedFilter = filter }
-                                .padding(horizontal = 14.dp, vertical = 6.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = filter,
-                                color = if (isSelected) Color.Black else Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                }
-
-                if (filteredFiles.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Charcoal),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-                            Icon(
-                                imageVector = Icons.Default.Info,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = Color.Gray
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = if (selectedFilter == "All") "No attachments or files found." else "No $selectedFilter files found.",
-                                color = Color.LightGray,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Upload or attach images, voice memos, videos or files inside Journals, Tasks, or Contacts to list them here.",
-                                color = Color.Gray,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxSize().testTag("files_grid_layout")
-                    ) {
-                        items(filteredFiles) { file ->
-                            val iconInfo = remember(file.name, file.fileMime, file.type) {
-                                getFileIconInfo(file.name, file.fileMime, file.type)
-                            }
-                            val customCardColor = iconInfo.cardBg
-                            val customIconTint = iconInfo.tint
-                            val customFileIcon = iconInfo.icon
-
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .combinedClickable(
-                                        onClick = { activePreviewFile = file },
-                                        onLongClick = { longPressedFile = file }
-                                    ),
-                                colors = CardDefaults.cardColors(containerColor = customCardColor),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(42.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(customIconTint.copy(alpha = 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = customFileIcon,
-                                            contentDescription = file.type,
-                                            tint = customIconTint,
-                                            modifier = Modifier.size(22.dp)
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.width(12.dp))
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = file.name,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.White,
-                                            fontSize = 13.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "${file.dateText} • ${file.sourceName}",
-                                            color = Color.Gray,
-                                            fontSize = 11.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    StorageLocationBadges(
-                                        fileNode = file,
-                                        onOptionsClick = { activeFileForOptions = file }
-                                    )
                                 }
                             }
                         }
@@ -5067,6 +5052,7 @@ fun FileExplorerView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         }
         }
     }
+}
 
 // ==========================================
 // SCOPED STORAGE PUBLIC DOWNLOADS FOLDER WRITER

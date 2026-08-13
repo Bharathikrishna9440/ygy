@@ -69,7 +69,7 @@ object GoogleDriveReadManager {
             null
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Error obtaining Google OAuth2 token: ${e.message}", e)
             null
         }

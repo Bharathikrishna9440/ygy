@@ -207,7 +207,11 @@ fun ContactsView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            val destFile = File(com.example.util.StorageHelper.getAppFilesDir(context), "profile_${System.currentTimeMillis()}.jpg")
+            val destFile = com.example.util.InternalStorageManager.getFile(
+                context, 
+                com.example.util.InternalStorageManager.Category.CONTACTS, 
+                "profile_${System.currentTimeMillis()}.jpg"
+            )
             val compressSuccess = MediaCompressionHelper.compressImageFromUri(context, uri, destFile)
             if (compressSuccess) {
                 selectedAvatar = destFile.absolutePath

@@ -16,7 +16,7 @@ class TotalFocusTimeWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
-        WidgetUpdater.updateTotalFocusTimeWidget(context)
+        WidgetManager.updateTotalFocusTimeWidget(context)
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -26,7 +26,7 @@ class TotalFocusTimeWidgetProvider : AppWidgetProvider() {
         newOptions: Bundle?
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        WidgetUpdater.updateTotalFocusTimeWidget(context)
+        WidgetManager.updateTotalFocusTimeWidget(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -37,10 +37,10 @@ class TotalFocusTimeWidgetProvider : AppWidgetProvider() {
         FocusTimerManager.init(context)
         when (action) {
             "com.example.widget.ACTION_REFRESH_TOTAL_FOCUS" -> {
-                WidgetUpdater.updateTotalFocusTimeWidget(context)
+                WidgetManager.updateTotalFocusTimeWidget(context)
             }
             "com.example.widget.ACTION_SHARE_TOTAL_FOCUS" -> {
-                val todaySeconds = WidgetUpdater.calculateTodayTotalFocusSeconds(context)
+                val todaySeconds = WidgetManager.fetchTodayTotalFocusSeconds(context)
                 val hrs = todaySeconds / 3600
                 val mins = (todaySeconds % 3600) / 60
                 val secs = todaySeconds % 60
@@ -74,7 +74,7 @@ class TotalFocusTimeWidgetProvider : AppWidgetProvider() {
             Intent.ACTION_DATE_CHANGED,
             Intent.ACTION_TIME_CHANGED,
             Intent.ACTION_TIMEZONE_CHANGED -> {
-                WidgetUpdater.updateTotalFocusTimeWidget(context, isPartialUpdate = true)
+                WidgetManager.updateTotalFocusTimeWidget(context, isPartialUpdate = true)
             }
         }
     }

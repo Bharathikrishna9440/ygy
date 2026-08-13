@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -55,6 +56,17 @@ object AppUpdateManager {
         OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .protocols(listOf(Protocol.HTTP_1_1, Protocol.HTTP_2))
+            .build()
+    }
+
+    private val http1Client by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .protocols(listOf(Protocol.HTTP_1_1))
             .build()
     }
 
@@ -445,8 +457,7 @@ object AppUpdateManager {
             val errorLogs = mutableListOf<String>()
             try {
                 val packageCode = getCurrentVersionCode(context)
-                val runningFirebase = getRunningFirebaseVersion(context)
-                val currentCode = maxOf(packageCode, runningFirebase)
+                val currentCode = packageCode
                 
                 // 1. Fetch update config from Firebase
                 var targetVersionCode = -1
@@ -1082,8 +1093,7 @@ object AppUpdateManager {
                     packageInfo.versionCode
                 }
                 val currentCode = getCurrentVersionCode(context)
-                val runningFirebase = getRunningFirebaseVersion(context)
-                val activeCode = maxOf(currentCode, runningFirebase)
+                val activeCode = currentCode
                 val isNewer = downloadedCode > activeCode
                 if (com.example.util.AppCrashRollbackManager.isVersionFailed(context, downloadedCode)) {
                     Log.w(TAG, "isValidAndNewerApk: Version $downloadedCode was previously marked failed. Bypassing.")
@@ -1190,8 +1200,7 @@ object AppUpdateManager {
                     val owner = getGithubOwner(context)
                     val repo = getGithubRepo(context)
                     val packageCode = getCurrentVersionCode(context)
-                    val runningFirebase = getRunningFirebaseVersion(context)
-                    val currentCode = maxOf(packageCode, runningFirebase)
+                    val currentCode = packageCode
                     val isPatchAllowed = (targetVersion - currentCode == 1)
                     if (isPatchAllowed && targetVersion > 0 && owner.isNotEmpty() && repo.isNotEmpty()) {
                         val patchUrl = "https://github.com/$owner/$repo/releases/download/v1.0.$targetVersion/patch.bsdiff"
@@ -1313,8 +1322,17 @@ object AppUpdateManager {
                     }
                 }
 
-                // Start actual download stream
-                client.newCall(finalRequest).execute().use { response ->
+                // Start actual download stream with HTTP/2 -> HTTP/1.1 fallback if stream is reset by server
+                val executeCall = {
+                    try {
+                        client.newCall(finalRequest).execute()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Primary client execution failed (${e.message}). Falling back to HTTP/1.1 client...")
+                        http1Client.newCall(finalRequest).execute()
+                    }
+                }
+
+                executeCall().use { response ->
                     if (!response.isSuccessful && response.code != 206) {
                         if (response.code == 416) {
                             Log.w(TAG, "Range 416 (Not Satisfiable). Resetting file and starting over.")
@@ -1420,7 +1438,7 @@ object AppUpdateManager {
                     }
                 }
 
-                val isFirebaseBypass = targetFirebaseVersion > runningFirebase && downloadedCode == packageCode
+                val isFirebaseBypass = targetFirebaseVersion > packageCode && downloadedCode == packageCode
 
                 if (downloadedCode <= packageCode && !isFirebaseBypass) {
                     Log.w(TAG, "Downloaded APK version code ($downloadedCode) is not greater than current version ($packageCode).")
@@ -1465,6 +1483,13 @@ object AppUpdateManager {
                     Log.e(TAG, "APK file is missing, empty, or corrupted")
                     _updateStatus.value = UpdateStatus.Error("The update installation failed: The APK file is missing or corrupted. Please try downloading again.")
                     return@launch
+                }
+
+                // Save active focus session state to disk so timer can resume post-update
+                try {
+                    com.example.util.FocusTimerManager.saveActiveSessionState(context)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to save active session state prior to installation", e)
                 }
 
                 // Ensure current working APK is safely backed up before installing new update
@@ -1527,7 +1552,8 @@ object AppUpdateManager {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         context.startActivity(intent)
-                        _updateStatus.value = UpdateStatus.Error("Please enable 'Install unknown apps' permission for Life OS and try again. Your local app data is fully secured.")
+                        _updateStatus.value = UpdateStatus.ReadyToInstall(apkFile)
+                        setReadyApkPath(context, apkFile.absolutePath)
                         return@launch
                     }
                 }
@@ -1548,7 +1574,7 @@ object AppUpdateManager {
                     val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
                     prefs.edit().putInt("pref_install_target_version", targetVersion).commit()
                 }
-                setReadyApkPath(context, null)
+                setReadyApkPath(context, apkFile.absolutePath)
                 context.startActivity(intent)
                 
                 // Set state back to idle so they can click download again if installation fails or is cancelled

@@ -14,7 +14,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -69,8 +68,8 @@ fun LoginView(viewModel: AppViewModel) {
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             try {
+                val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
                 val account = task.getResult(ApiException::class.java)
                 val email = account?.email ?: ""
                 val displayName = account?.displayName ?: ""
@@ -84,7 +83,7 @@ fun LoginView(viewModel: AppViewModel) {
                 }
             } catch (e: ApiException) {
                 errorMsg = "Google Sign-In failed: Status code ${e.statusCode}. ${e.localizedMessage ?: e.message}"
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 errorMsg = "Google Sign-In failed: ${e.localizedMessage ?: e.message}"
             }
         } else {

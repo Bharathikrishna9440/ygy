@@ -644,7 +644,7 @@ fun SettingsView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
         14 -> {
             SettingsSubpageWorkspace(
                 title = "Blocks & Screen Limits",
-                description = "Configure daily tracked limit quotas for Instagram, Facebook, Snapchat, or other manual apps.",
+                description = "Configure daily tracked limit quotas for Instagram, Facebook, Snapchat, YouTube, Spotify, or other apps.",
                 onBack = { activePage = 0 }
             ) {
                 AppBlocksSettingsSection(viewModel = viewModel)
@@ -1251,7 +1251,7 @@ fun CalendarSettingsSection(viewModel: AppViewModel) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        val googleAccount = remember { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) }
+        val googleAccount = remember { try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null } }
         val defaultEmail = googleAccount?.email ?: "cabharathikrishan@gmail.com"
         var selectedTasksAccount by remember { mutableStateOf(prefs.getString("selected_tasks_account", defaultEmail)) }
 
@@ -2453,7 +2453,7 @@ fun LifeOSBackupSection(viewModel: AppViewModel) {
                     if (!hasDrivePermission) {
                         Button(
                             onClick = {
-                                val googleAccount = GoogleSignIn.getLastSignedInAccount(context)
+                                val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
                                 if (googleAccount == null) {
                                     try {
                                         val driveScope = com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.appdata")
@@ -4535,7 +4535,7 @@ fun GoogleCalendarAndTasksSyncSection(viewModel: AppViewModel) {
     val calendarSyncStatus by viewModel.calendarSyncStatus.collectAsState()
     val googleTasksSyncStatus by viewModel.googleTasksSyncStatus.collectAsState()
     
-    val googleAccount = remember { GoogleSignIn.getLastSignedInAccount(context) }
+    val googleAccount = remember { try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null } }
     
     // Auth launcher for tasks sync
     val tasksAuthLauncher = rememberLauncherForActivityResult(
@@ -5146,7 +5146,7 @@ fun SettingsContactsPage(
                         fontSize = 11.sp
                     )
 
-                    val googleAccount = remember { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) }
+                    val googleAccount = remember { try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null } }
                     val defaultEmail = googleAccount?.email ?: "cabharathikrishan@gmail.com"
                     val prefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
                     var contactsAccount by remember { mutableStateOf(prefs.getString("selected_contacts_account", defaultEmail)) }
@@ -6664,7 +6664,7 @@ fun SettingsFileExplorerPage(
 
                 HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
 
-                val googleAccount = remember { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) }
+                val googleAccount = remember { try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null } }
                 val defaultEmail = googleAccount?.email ?: "cabharathikrishan@gmail.com"
                 val prefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
                 var fileBackupAccount by remember { mutableStateOf(prefs.getString("selected_file_backup_account", defaultEmail)) }
@@ -7309,8 +7309,11 @@ fun SettingsGeneralSystemPage(
         val youtubeSearchBlocked by viewModel.youtubeSearchBlocked.collectAsState()
         val youtubeCommentsBlocked by viewModel.youtubeCommentsBlocked.collectAsState()
         val spotifyWebAppEnabled by viewModel.spotifyWebAppEnabled.collectAsState()
+        val spotifyOverrideOfficialApp by viewModel.spotifyOverrideOfficialApp.collectAsState()
+        val spotifyAdMuteEnabled by viewModel.spotifyAdMuteEnabled.collectAsState()
+        val spotifyPodcastsBlocked by viewModel.spotifyPodcastsBlocked.collectAsState()
         val context = LocalContext.current
-        var tempOrder by remember(tabOrder) { mutableStateOf(tabOrder.filterNot { it == Screen.FOCUS_LOCKER || it == Screen.LIVE_SPHERE || it == Screen.INSTAGRAM_WEB_APP || it == Screen.YOUTUBE_WEB_APP || it == Screen.SPOTIFY_WEB_APP || it == Screen.GOOGLE_DRIVE_SYNC }) }
+        var tempOrder by remember(tabOrder) { mutableStateOf(tabOrder.filterNot { it == Screen.FOCUS_LOCKER || it == Screen.LIVE_SPHERE || it == Screen.INSTAGRAM_WEB_APP || it == Screen.YOUTUBE_WEB_APP || it == Screen.SPOTIFY_WEB_APP || it == Screen.GOOGLE_DRIVE_SYNC || it == Screen.MOVIE_TRACKER }) }
 
         // General System Page
         SettingsSubpageWorkspace(
@@ -7876,6 +7879,171 @@ fun SettingsGeneralSystemPage(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Spotify (AntiSpotify) Section
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Spotify (AntiSpotify)", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFF1DB954).copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("AdBlock & Distraction-Free 🎵", color = Color(0xFF1DB954), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Opens Spotify in a distraction-free in-app web browser with AntiSpotify pre-installed. Filters ads, mutes promotions, and removes video recommendation distractions.",
+                                color = Color.Gray,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Switch(
+                            checked = spotifyWebAppEnabled,
+                            onCheckedChange = { enabled ->
+                                viewModel.setSpotifyWebAppEnabled(enabled)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = WaterBlue, checkedTrackColor = WaterBlue.copy(alpha = 0.5f)),
+                            modifier = Modifier.testTag("spotify_web_app_switch")
+                        )
+                    }
+
+                    if (spotifyWebAppEnabled) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // 1. Auto-redirect from Official Spotify App
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text("Auto-redirect from Official Spotify App", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    "When the official Spotify app is opened on your phone, automatically close it and launch AntiSpotify web player instead.",
+                                    color = Color.Gray,
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Switch(
+                                checked = spotifyOverrideOfficialApp,
+                                onCheckedChange = { enabled ->
+                                    viewModel.setSpotifyOverrideOfficialApp(enabled)
+                                },
+                                colors = SwitchDefaults.colors(checkedThumbColor = WaterBlue, checkedTrackColor = WaterBlue.copy(alpha = 0.5f)),
+                                modifier = Modifier.testTag("spotify_override_official_app_switch")
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // 2. Mute Audio Ads
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text("Auto-Mute Audio Ads & Banners", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    "Automatically mutes audio volume and blocks banner popups during promotional ad breaks.",
+                                    color = Color.Gray,
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Switch(
+                                checked = spotifyAdMuteEnabled,
+                                onCheckedChange = { enabled ->
+                                    viewModel.setSpotifyAdMuteEnabled(enabled)
+                                },
+                                colors = SwitchDefaults.colors(checkedThumbColor = WaterBlue, checkedTrackColor = WaterBlue.copy(alpha = 0.5f)),
+                                modifier = Modifier.testTag("spotify_ad_mute_switch")
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // 3. Block Podcasts Feed
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text("Block Video Podcasts & Recommendations", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    "Hides non-music podcast feeds and video distractions to keep playback strictly music-focused.",
+                                    color = Color.Gray,
+                                    fontSize = 11.sp
+                                )
+                            }
+                            Switch(
+                                checked = spotifyPodcastsBlocked,
+                                onCheckedChange = { blocked ->
+                                    viewModel.setSpotifyPodcastsBlocked(blocked)
+                                },
+                                colors = SwitchDefaults.colors(checkedThumbColor = WaterBlue, checkedTrackColor = WaterBlue.copy(alpha = 0.5f)),
+                                modifier = Modifier.testTag("spotify_podcasts_blocked_switch")
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    val success = com.example.util.ShortcutUtils.createSpotifyShortcut(context)
+                                    if (success) {
+                                        android.widget.Toast.makeText(context, "Spotify shortcut created! Check home screen or long-press app icon.", android.widget.Toast.LENGTH_LONG).show()
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Added Spotify shortcut to app launcher menu.", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
+                                    .testTag("pin_spotify_shortcut_btn"),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = WaterBlue, contentColor = Color.Black)
+                            ) {
+                                Text("PIN HOME SCREEN SHORTCUT 📌", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            Button(
+                                onClick = {
+                                    viewModel.navigateTo(Screen.SPOTIFY_WEB_APP)
+                                },
+                                modifier = Modifier
+                                    .height(38.dp)
+                                    .testTag("launch_spotify_now_btn"),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF222222), contentColor = Color.White)
+                            ) {
+                                Text("OPEN NOW", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -7938,6 +8106,7 @@ fun SettingsGeneralSystemPage(
                                 Screen.SPOTIFY_WEB_APP -> "Spotify (AntiSpotify)"
                                 Screen.OBSIDIAN_ARCHITECTURE -> "Obsidian Architecture"
                                 Screen.GOOGLE_DRIVE_SYNC -> "Google Drive Sync"
+                                Screen.MOVIE_TRACKER -> "Movie Tracker"
                             }
 
                             Row(
@@ -8980,7 +9149,7 @@ fun PermissionsSettingsSection(viewModel: AppViewModel) {
             isGranted = hasDrivePermission,
             onClick = {
                 if (!hasDrivePermission) {
-                    val googleAccount = GoogleSignIn.getLastSignedInAccount(context)
+                    val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
                     if (googleAccount == null) {
                         triggerGoogleSignInForScopes(listOf(
                             com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.appdata"),
@@ -9003,7 +9172,7 @@ fun PermissionsSettingsSection(viewModel: AppViewModel) {
             isGranted = hasGoogleContactsPermission,
             onClick = {
                 if (!hasGoogleContactsPermission) {
-                    val googleAccount = GoogleSignIn.getLastSignedInAccount(context)
+                    val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
                     if (googleAccount == null) {
                         triggerGoogleSignInForScopes(listOf(
                             com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/contacts")
@@ -9026,7 +9195,7 @@ fun PermissionsSettingsSection(viewModel: AppViewModel) {
             isGranted = hasGoogleTasksPermission,
             onClick = {
                 if (!hasGoogleTasksPermission) {
-                    val googleAccount = GoogleSignIn.getLastSignedInAccount(context)
+                    val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
                     if (googleAccount == null) {
                         triggerGoogleSignInForScopes(listOf(
                             com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/tasks")
@@ -9048,7 +9217,7 @@ fun PermissionsSettingsSection(viewModel: AppViewModel) {
             isGranted = hasGoogleFitPermission,
             onClick = {
                 if (!hasGoogleFitPermission) {
-                    val googleAccount = GoogleSignIn.getLastSignedInAccount(context)
+                    val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
                     if (googleAccount == null) {
                         triggerGoogleSignInForScopes(listOf(
                             com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/fitness.activity.read"),
@@ -9092,7 +9261,7 @@ fun PermissionsSettingsSection(viewModel: AppViewModel) {
             isGranted = hasGoogleKeepPermission,
             onClick = {
                 if (!hasGoogleKeepPermission) {
-                    val googleAccount = GoogleSignIn.getLastSignedInAccount(context)
+                    val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
                     if (googleAccount == null) {
                         triggerGoogleSignInForScopes(listOf(
                             com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.appdata")
@@ -10397,7 +10566,7 @@ fun SettingsTimerConfigurationPage(
                     ) {
                         Button(
                             onClick = {
-                                com.example.widget.WidgetUpdater.requestPinWidget(context, com.example.widget.PomodoroWidgetProvider::class.java)
+                                com.example.widget.WidgetManager.requestPinWidget(context, com.example.widget.PomodoroWidgetProvider::class.java)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E1F)),
                             shape = RoundedCornerShape(6.dp),
@@ -10408,7 +10577,7 @@ fun SettingsTimerConfigurationPage(
                         }
                         Button(
                             onClick = {
-                                com.example.widget.WidgetUpdater.requestPinWidget(context, com.example.widget.TimerStopwatchWidgetProvider::class.java)
+                                com.example.widget.WidgetManager.requestPinWidget(context, com.example.widget.TimerStopwatchWidgetProvider::class.java)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E1F)),
                             shape = RoundedCornerShape(6.dp),
@@ -10419,7 +10588,7 @@ fun SettingsTimerConfigurationPage(
                         }
                         Button(
                             onClick = {
-                                com.example.widget.WidgetUpdater.requestPinWidget(context, com.example.widget.TotalFocusTimeWidgetProvider::class.java)
+                                com.example.widget.WidgetManager.requestPinWidget(context, com.example.widget.TotalFocusTimeWidgetProvider::class.java)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E1F)),
                             shape = RoundedCornerShape(6.dp),
@@ -10430,7 +10599,7 @@ fun SettingsTimerConfigurationPage(
                         }
                         Button(
                             onClick = {
-                                com.example.widget.WidgetUpdater.requestPinWidget(context, com.example.widget.FriendsFocusWidgetProvider::class.java)
+                                com.example.widget.WidgetManager.requestPinWidget(context, com.example.widget.FriendsFocusWidgetProvider::class.java)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E1F)),
                             shape = RoundedCornerShape(6.dp),
@@ -10441,7 +10610,7 @@ fun SettingsTimerConfigurationPage(
                         }
                         Button(
                             onClick = {
-                                com.example.widget.WidgetUpdater.requestPinWidget(context, com.example.widget.PhotoShowerWidgetProvider::class.java)
+                                com.example.widget.WidgetManager.requestPinWidget(context, com.example.widget.PhotoShowerWidgetProvider::class.java)
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E1E1F)),
                             shape = RoundedCornerShape(6.dp),
@@ -10477,7 +10646,7 @@ fun SettingsTimerConfigurationPage(
                             onClick = {
                                 widgetGlassStyle = "black_glass"
                                 widgetPrefs.edit().putString("widget_glass_style", "black_glass").apply()
-                                com.example.widget.WidgetUpdater.updateAllWidgets(context)
+                                com.example.widget.WidgetManager.updateAllWidgets(context)
                             },
                             shape = RoundedCornerShape(8.dp),
                             color = if (widgetGlassStyle == "black_glass") WaterBlue.copy(alpha = 0.2f) else Color(0xFF1E1E1F),
@@ -10500,7 +10669,7 @@ fun SettingsTimerConfigurationPage(
                             onClick = {
                                 widgetGlassStyle = "clear_glass"
                                 widgetPrefs.edit().putString("widget_glass_style", "clear_glass").apply()
-                                com.example.widget.WidgetUpdater.updateAllWidgets(context)
+                                com.example.widget.WidgetManager.updateAllWidgets(context)
                             },
                             shape = RoundedCornerShape(8.dp),
                             color = if (widgetGlassStyle == "clear_glass") WaterBlue.copy(alpha = 0.2f) else Color(0xFF1E1E1F),
@@ -10547,7 +10716,7 @@ fun SettingsTimerConfigurationPage(
                                 onClick = {
                                     photoWidgetIntervalSec = sec
                                     widgetPrefs.edit().putInt("journal_photo_widget_interval_sec", sec).apply()
-                                    com.example.widget.WidgetUpdater.updatePhotoShowerWidget(context, forceNext = true)
+                                    com.example.widget.WidgetManager.updatePhotoShowerWidget(context, forceNext = true)
                                 },
                                 shape = RoundedCornerShape(6.dp),
                                 color = if (isSelected) Color(0xFF10B981).copy(alpha = 0.25f) else Color(0xFF1E1E1F),
@@ -12837,7 +13006,7 @@ fun PermissionOnboardingView(viewModel: AppViewModel) {
                 buttonText = if (hasDrivePermission) "Authorized" else "Authorize Sync",
                 onButtonClick = {
                     if (!hasDrivePermission) {
-                        val googleAccount = GoogleSignIn.getLastSignedInAccount(context)
+                        val googleAccount = try { GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
                         if (googleAccount == null) {
                             try {
                                 val driveScope = com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/drive.appdata")
@@ -13238,7 +13407,7 @@ fun SocialOnboardingView(
                         modifier = Modifier.size(24.dp)
                     )
                     Text(
-                        text = "By default, Instagram and Snapchat have been added to your app blocker list. Bedtime / Wake-up alarm has been configured OFF by default.",
+                        text = "By default, Instagram, Snapchat, YouTube, and Spotify have been added to your app blocker list. Bedtime / Wake-up alarm has been configured OFF by default.",
                         color = Color.LightGray,
                         fontSize = 12.sp,
                         lineHeight = 16.sp

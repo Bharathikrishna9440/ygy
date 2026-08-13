@@ -121,7 +121,7 @@ fun resolveAuthorName(context: android.content.Context): String {
         return nickname
     }
 
-    val currentAccount = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context)
+    val currentAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
     val googleName = currentAccount?.displayName
     if (!googleName.isNullOrBlank()) {
         return googleName
@@ -471,11 +471,19 @@ fun JournalBookView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
     val takePhotoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        if (success && activePhotoFile != null) {
-            val optimizedFile = MediaCompressionHelper.compressImageFile(context, activePhotoFile!!)
-            editingAttachments = editingAttachments + "photo:${optimizedFile.absolutePath}"
-            com.example.widget.WidgetPhotoManager.ensureWidgetCopy(context, optimizedFile.absolutePath)
-            com.example.widget.WidgetUpdater.updatePhotoShowerWidget(context)
+        try {
+            val target = activePhotoFile
+            if (success && target != null && target.exists() && target.length() > 0) {
+                val optimizedFile = MediaCompressionHelper.compressImageFile(context, target)
+                editingAttachments = editingAttachments + "photo:${optimizedFile.absolutePath}"
+                com.example.widget.WidgetPhotoManager.ensureWidgetCopy(context, optimizedFile.absolutePath)
+                com.example.widget.WidgetManager.updatePhotoShowerWidget(context)
+                Toast.makeText(context, "Photo attached to journal entry", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "No photo captured or camera was closed.", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Failed to process photo: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -499,7 +507,7 @@ fun JournalBookView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                 editingAttachments = editingAttachments + "file:${copiedFile.name}|path:${copiedFile.absolutePath}"
                 if (com.example.widget.WidgetPhotoManager.isPhotoAttachment(copiedFile.absolutePath)) {
                     com.example.widget.WidgetPhotoManager.ensureWidgetCopy(context, copiedFile.absolutePath)
-                    com.example.widget.WidgetUpdater.updatePhotoShowerWidget(context)
+                    com.example.widget.WidgetManager.updatePhotoShowerWidget(context)
                 }
             }
         }
@@ -2058,11 +2066,18 @@ fun JournalBookView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                                 requestPermissionLauncher.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO))
                             } else {
-                                val outPhotoFile = File(com.example.util.StorageHelper.getAppFilesDir(context), "journal_photo_${System.currentTimeMillis()}.jpg")
-                                activePhotoFile = outPhotoFile
-                                val photoUri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outPhotoFile)
                                 try {
-                                    takePhotoLauncher.launch(photoUri)
+                                    val outPhotoFile = com.example.util.InternalStorageManager.getFile(
+                                        context, 
+                                        com.example.util.InternalStorageManager.Category.JOURNAL, 
+                                        "journal_photo_${System.currentTimeMillis()}.jpg"
+                                    )
+                                    if (!outPhotoFile.exists()) outPhotoFile.createNewFile()
+                                    activePhotoFile = outPhotoFile
+                                    val photoUri = com.example.util.InternalStorageManager.getShareableUri(context, outPhotoFile)
+                                    if (photoUri != null) {
+                                        takePhotoLauncher.launch(photoUri)
+                                    }
                                 } catch (e: android.content.ActivityNotFoundException) {
                                     Toast.makeText(context, "No camera application found to take photos.", Toast.LENGTH_LONG).show()
                                 } catch (e: Exception) {
@@ -4576,7 +4591,7 @@ fun JournalBookView(viewModel: AppViewModel, modifier: Modifier = Modifier) {
                                 val updated = entry.copy(attachmentsJson = newList.joinToString(";;"))
                                 viewModel.updateJournalEntry(updated)
                                 viewingEntry = updated
-                                com.example.widget.WidgetUpdater.updatePhotoShowerWidget(context)
+                                com.example.widget.WidgetManager.updatePhotoShowerWidget(context)
                             }
                         )
                     }

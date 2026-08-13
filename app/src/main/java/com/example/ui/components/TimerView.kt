@@ -2368,7 +2368,7 @@ fun FriendsFocusPill(
     val focusingAvatars = remember(focusingPeers, isMeFocusing, userEmoji, viewModel.firestoreAvatars.size) {
         val list = mutableListOf<String>()
         if (isMeFocusing) {
-            val googleAccount = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(viewModel.getApplication())
+            val googleAccount = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(viewModel.getApplication()) } catch (e: Throwable) { null }
             val photoUrl = googleAccount?.photoUrl?.toString() ?: ""
             val firestoreAvatar = if (myEmail.isNotEmpty()) viewModel.firestoreAvatars[myEmail] else null
             val myAvatar = when {

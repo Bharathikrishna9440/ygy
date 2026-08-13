@@ -3003,6 +3003,7 @@ fun InAppPdfViewerDialog(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .padding(vertical = 8.dp),
+                                    contentPadding = PaddingValues(bottom = 96.dp),
                                     verticalArrangement = Arrangement.spacedBy(12.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
@@ -3083,7 +3084,8 @@ fun InAppPdfViewerDialog(
                                     Surface(
                                         modifier = Modifier
                                             .align(Alignment.BottomCenter)
-                                            .padding(bottom = 16.dp, start = 16.dp, end = 16.dp)
+                                            .navigationBarsPadding()
+                                            .padding(bottom = 28.dp, start = 12.dp, end = 12.dp)
                                             .clip(RoundedCornerShape(24.dp)),
                                         color = Color(0xEA1E1F2B),
                                         tonalElevation = 8.dp,

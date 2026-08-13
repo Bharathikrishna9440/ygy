@@ -585,9 +585,160 @@ data class CalendarInfo(
     val displayName: String
 )
 
+data class SystemCalendarEvent(
+    val id: Long,
+    val title: String,
+    val description: String,
+    val startMillis: Long,
+    val endMillis: Long,
+    val isAllDay: Boolean,
+    val dateStr: String,
+    val calendarDisplayName: String,
+    val isHolidayOrFestival: Boolean
+)
+
 object GoogleCalendarSyncHelper {
 
     private const val TAG = "GoogleCalendarSync"
+
+    fun isHolidayCalendar(accountName: String, displayName: String): Boolean {
+        val lowerAcc = accountName.lowercase(Locale.ROOT).trim()
+        val lowerDisp = displayName.lowercase(Locale.ROOT).trim()
+        return lowerDisp.contains("holiday") || lowerDisp.contains("festival") || lowerDisp.contains("vacation") ||
+               lowerDisp.contains("birthday") || lowerAcc.contains("#holiday@") || lowerAcc.contains("group.v.calendar.google.com") ||
+               lowerAcc.contains("addressbook#contacts")
+    }
+
+    fun isHolidayOrFestival(title: String, description: String = "", calendarName: String = ""): Boolean {
+        if (calendarName.isNotEmpty() && isHolidayCalendar("", calendarName)) return true
+        val lowerTitle = title.lowercase(Locale.ROOT).trim()
+        val lowerDesc = description.lowercase(Locale.ROOT).trim()
+
+        val keywords = listOf(
+            "holiday", "festival", "festivals", "diwali", "deepavali", "christmas", "xmas", "eid", "holi",
+            "independence day", "republic day", "gandhi jayanti", "thanksgiving", "new year", "good friday",
+            "labor day", "labour day", "memorial day", "columbus day", "veterans day", "martin luther king", "presidents' day",
+            "raksha bandhan", "dussehra", "dussera", "ram navami", "janmashtami", "ganesh chaturthi", "maha shivratri",
+            "pongal", "makar sankranti", "onam", "baisakhi", "karwa chauth", "dhanteras", "bhai dooj", "ugadi",
+            "gudi padwa", "chath puja", "chhat puja", "durga puja", "navratri", "easter", "halloween", "valentine",
+            "st. patrick", "boxing day", "patriots' day", "flag day", "juneteenth", "indigenous peoples' day",
+            "kwanzaa", "hanukkah", "passover", "rosh hashanah", "yom kippur", "vesak", "buddha purnima",
+            "guru nanak", "mahavir jayanti", "milad un nabi", "muharram", "ashura", "public holiday", "bank holiday",
+            "national holiday", "observance", "season's greetings"
+        )
+
+        for (kw in keywords) {
+            if (lowerTitle.contains(kw) || lowerDesc.contains(kw)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    suspend fun purgeSyncedHolidayTasks(
+        context: Context,
+        localTasks: List<Task>,
+        onDeleteTask: suspend (Task) -> Unit
+    ) {
+        for (task in localTasks) {
+            val isFromGCal = task.description.contains("[GCalEventId:") || task.listCategory == "Google Calendar"
+            if (isFromGCal && isHolidayOrFestival(task.title, task.description)) {
+                Log.d(TAG, "Purging existing holiday task: '${task.title}' (ID: ${task.id})")
+                try {
+                    onDeleteTask(task)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed purging holiday task ${task.id}: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun fetchSystemCalendarEvents(context: Context, startMillis: Long, endMillis: Long): List<SystemCalendarEvent> {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.READ_CALENDAR
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return emptyList()
+        }
+
+        val events = mutableListOf<SystemCalendarEvent>()
+        val resolver = context.contentResolver
+
+        val calendarMap = mutableMapOf<Long, String>()
+        try {
+            val calCursor = resolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                arrayOf(CalendarContract.Calendars._ID, CalendarContract.Calendars.CALENDAR_DISPLAY_NAME),
+                null, null, null
+            )
+            calCursor?.use {
+                while (it.moveToNext()) {
+                    val calId = it.getLong(0)
+                    val name = it.getString(1) ?: ""
+                    calendarMap[calId] = name
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error querying calendar map: ${e.message}")
+        }
+
+        val selection = "(${CalendarContract.Events.DTSTART} >= ?) AND (${CalendarContract.Events.DTSTART} <= ?) AND (deleted != 1)"
+        val selectionArgs = arrayOf(startMillis.toString(), endMillis.toString())
+        val projection = arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.TITLE,
+            CalendarContract.Events.DESCRIPTION,
+            CalendarContract.Events.DTSTART,
+            CalendarContract.Events.DTEND,
+            CalendarContract.Events.ALL_DAY,
+            CalendarContract.Events.CALENDAR_ID
+        )
+
+        val sdfDate = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+
+        try {
+            val cursor = resolver.query(
+                CalendarContract.Events.CONTENT_URI,
+                projection,
+                selection,
+                selectionArgs,
+                "${CalendarContract.Events.DTSTART} ASC"
+            )
+            cursor?.use {
+                while (it.moveToNext()) {
+                    val eventId = it.getLong(0)
+                    val title = it.getString(1) ?: "Event"
+                    val description = it.getString(2) ?: ""
+                    val dtStart = it.getLong(3)
+                    val dtEnd = it.getLong(4)
+                    val allDay = (it.getInt(5) == 1)
+                    val calId = it.getLong(6)
+                    val calName = calendarMap[calId] ?: ""
+
+                    val dateStr = sdfDate.format(Date(dtStart))
+                    val isHoliday = isHolidayOrFestival(title, description, calName)
+
+                    events.add(
+                        SystemCalendarEvent(
+                            id = eventId,
+                            title = title,
+                            description = description,
+                            startMillis = dtStart,
+                            endMillis = dtEnd,
+                            isAllDay = allDay,
+                            dateStr = dateStr,
+                            calendarDisplayName = calName,
+                            isHolidayOrFestival = isHoliday
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching system calendar events: ${e.message}")
+        }
+
+        return events
+    }
 
     // Helper to check and get a calendar ID (preferring Google account calendars or user's selected preferences)
     fun getOrCreateCalendarId(context: Context): Long? {
@@ -625,6 +776,10 @@ object GoogleCalendarSyncHelper {
                     val accountType = it.getString(2) ?: ""
                     val displayName = it.getString(3) ?: ""
                     
+                    if (isHolidayCalendar(accountName, displayName)) {
+                        continue
+                    }
+
                     // Priority 1: Match saved calendar ID precisely
                     if (selectedId != -1L && id == selectedId) {
                         Log.d(TAG, "Found precise selected calendar ID match: $id")
@@ -709,8 +864,13 @@ object GoogleCalendarSyncHelper {
         context: Context,
         localTasks: List<Task>,
         onImportTask: suspend (String, String, Int, String) -> Long,
-        onUpdateTask: suspend (Task) -> Unit
+        onUpdateTask: suspend (Task) -> Unit,
+        onDeleteTask: (suspend (Task) -> Unit)? = null
     ): String {
+        if (onDeleteTask != null) {
+            purgeSyncedHolidayTasks(context, localTasks, onDeleteTask)
+        }
+
         val calendarId = getOrCreateCalendarId(context)
             ?: return "No calendar found on device. Please set up a Google account first."
 
@@ -764,6 +924,19 @@ object GoogleCalendarSyncHelper {
                     val gcalLocation = try { cursor.getString(5) ?: "" } catch (e: Exception) { "" }
 
                     val eventDateStr = sdfDate.format(Date(dtStart))
+
+                    // Do not sync festival/holiday events into Task list
+                    if (isHolidayOrFestival(title, description)) {
+                        Log.d(TAG, "Sync: Skipping festival/holiday event '$title'")
+                        val matchedHolidayLocal = localTasks.find { task ->
+                            task.description.contains("[GCalEventId: $eventId]") ||
+                            (task.title.trim().equals(title.trim(), ignoreCase = true) && task.dueDateString == eventDateStr)
+                        }
+                        if (matchedHolidayLocal != null && onDeleteTask != null) {
+                            onDeleteTask(matchedHolidayLocal)
+                        }
+                        continue
+                    }
 
                     // Check if this event has been deleted locally
                     val isDeletedLocally = DeletedTaskLogHelper.isGCalEventDeletedLocally(context, eventId.toString()) ||
@@ -2205,7 +2378,9 @@ object GoogleFitSyncManager {
                 withContext(Dispatchers.Main) { onAuthResolutionRequired(intent) }
             }
             null
-        } catch (e: Exception) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
             Log.e(TAG, "Error obtaining Google OAuth2 token: ${e.message}", e)
             null
         }
@@ -2477,7 +2652,7 @@ object GooglePhotosSyncManager {
         onAuthResolutionRequired: (Intent) -> Unit = {}
     ): String? = withContext(Dispatchers.IO) {
         try {
-            val account = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context)
+            val account = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
             val email = account?.email
             if (email.isNullOrBlank()) {
                 Log.w(TAG, "No Google account email found. Triggering Google Sign-In for Photos scope.")
@@ -2485,9 +2660,11 @@ object GooglePhotosSyncManager {
                     .requestEmail()
                     .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/photoslibrary.readonly"))
                     .build()
-                val intent = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso).signInIntent
-                withContext(Dispatchers.Main) {
-                    onAuthResolutionRequired(intent)
+                val intent = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso).signInIntent } catch (e: Throwable) { null }
+                if (intent != null) {
+                    withContext(Dispatchers.Main) {
+                        onAuthResolutionRequired(intent)
+                    }
                 }
                 return@withContext null
             }
@@ -2498,16 +2675,18 @@ object GooglePhotosSyncManager {
             null
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Error obtaining Google OAuth2 token for Photos: ${e.message}", e)
-            val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
-                .requestEmail()
-                .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/photoslibrary.readonly"))
-                .build()
-            val intent = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso).signInIntent
-            withContext(Dispatchers.Main) {
-                onAuthResolutionRequired(intent)
-            }
+            try {
+                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
+                    .requestEmail()
+                    .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/photoslibrary.readonly"))
+                    .build()
+                val intent = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso).signInIntent
+                withContext(Dispatchers.Main) {
+                    onAuthResolutionRequired(intent)
+                }
+            } catch (ignored: Throwable) {}
             null
         }
     }
@@ -2644,7 +2823,7 @@ object GooglePhotosSyncManager {
         onAuthResolutionRequired: (Intent) -> Unit = {}
     ): String? = withContext(Dispatchers.IO) {
         try {
-            val account = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context)
+            val account = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context) } catch (e: Throwable) { null }
             val email = account?.email
             if (email.isNullOrBlank()) {
                 Log.w(TAG, "No Google account email found for Picker. Triggering Google Sign-In.")
@@ -2652,9 +2831,11 @@ object GooglePhotosSyncManager {
                     .requestEmail()
                     .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/photospicker.mediaitems.readonly"))
                     .build()
-                val intent = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso).signInIntent
-                withContext(Dispatchers.Main) {
-                    onAuthResolutionRequired(intent)
+                val intent = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso).signInIntent } catch (e: Throwable) { null }
+                if (intent != null) {
+                    withContext(Dispatchers.Main) {
+                        onAuthResolutionRequired(intent)
+                    }
                 }
                 return@withContext null
             }
@@ -2665,16 +2846,20 @@ object GooglePhotosSyncManager {
             null
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Error obtaining Google OAuth2 token for Picker: ${e.message}", e)
-            val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
-                .requestEmail()
-                .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/photospicker.mediaitems.readonly"))
-                .build()
-            val intent = com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso).signInIntent
-            withContext(Dispatchers.Main) {
-                onAuthResolutionRequired(intent)
-            }
+            try {
+                val gso = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
+                    .requestEmail()
+                    .requestScopes(com.google.android.gms.common.api.Scope("https://www.googleapis.com/auth/photospicker.mediaitems.readonly"))
+                    .build()
+                val intent = try { com.google.android.gms.auth.api.signin.GoogleSignIn.getClient(context, gso).signInIntent } catch (e: Throwable) { null }
+                if (intent != null) {
+                    withContext(Dispatchers.Main) {
+                        onAuthResolutionRequired(intent)
+                    }
+                }
+            } catch (ignored: Throwable) {}
             null
         }
     }

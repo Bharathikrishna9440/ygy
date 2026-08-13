@@ -15,7 +15,7 @@ class PhotoShowerWidgetProvider : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
-        WidgetUpdater.updatePhotoShowerWidget(context, forceNext = false)
+        WidgetManager.updatePhotoShowerWidget(context, forceNext = false)
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -25,7 +25,7 @@ class PhotoShowerWidgetProvider : AppWidgetProvider() {
         newOptions: Bundle?
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        WidgetUpdater.updatePhotoShowerWidget(context, forceNext = false)
+        WidgetManager.updatePhotoShowerWidget(context, forceNext = false)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -35,10 +35,10 @@ class PhotoShowerWidgetProvider : AppWidgetProvider() {
 
         when (action) {
             "com.example.widget.ACTION_PHOTO_SHOWER_NEXT" -> {
-                WidgetUpdater.updatePhotoShowerWidget(context, forceNext = true)
+                WidgetManager.updatePhotoShowerWidget(context, forceNext = true)
             }
             "com.example.widget.ACTION_PHOTO_SHOWER_REFRESH" -> {
-                WidgetUpdater.updatePhotoShowerWidget(context, forceNext = false)
+                WidgetManager.updatePhotoShowerWidget(context, forceNext = false)
             }
         }
     }

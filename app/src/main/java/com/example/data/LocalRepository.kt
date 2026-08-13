@@ -105,7 +105,7 @@ class LocalRepository(val db: AppDatabase, val context: android.content.Context)
             sanitized.id.toLong()
         }
         pushLiveSync { email ->
-            com.example.api.AppDataLiveSyncEngine.pushTaskToCloud(context, email, sanitized)
+            com.example.api.SameUserMultiDeviceSyncManager.pushTaskToCloud(context, email, sanitized)
         }
         res
     }
@@ -129,7 +129,7 @@ class LocalRepository(val db: AppDatabase, val context: android.content.Context)
         // Also delete subtasks if it's a parent
         taskDao.deleteSubtasks(task.id)
         pushLiveSync { email ->
-            com.example.api.AppDataLiveSyncEngine.pushTaskToCloud(context, email, task, isDeleted = true)
+            com.example.api.SameUserMultiDeviceSyncManager.pushTaskToCloud(context, email, task, isDeleted = true)
         }
     }
 
@@ -206,7 +206,7 @@ class LocalRepository(val db: AppDatabase, val context: android.content.Context)
         val id = journalDao.insertJournalEntry(sanitized)
         val saved = sanitized.copy(id = id.toInt())
         pushLiveSync { email ->
-            com.example.api.AppDataLiveSyncEngine.pushJournalToCloud(context, email, saved)
+            com.example.api.SameUserMultiDeviceSyncManager.pushJournalToCloud(context, email, saved)
         }
         id
     }
@@ -214,7 +214,7 @@ class LocalRepository(val db: AppDatabase, val context: android.content.Context)
     suspend fun deleteJournal(entry: JournalEntry) = withContext(NonCancellable) {
         journalDao.deleteJournalEntry(entry)
         pushLiveSync { email ->
-            com.example.api.AppDataLiveSyncEngine.pushJournalToCloud(context, email, entry, isDeleted = true)
+            com.example.api.SameUserMultiDeviceSyncManager.pushJournalToCloud(context, email, entry, isDeleted = true)
         }
     }
 
@@ -335,7 +335,7 @@ class LocalRepository(val db: AppDatabase, val context: android.content.Context)
         val id = appFileDao.insertFile(file)
         val saved = file.copy(id = id.toInt())
         pushLiveSync { email ->
-            com.example.api.AppDataLiveSyncEngine.pushFileToCloud(context, email, saved)
+            com.example.api.SameUserMultiDeviceSyncManager.pushFileToCloud(context, email, saved)
         }
         id
     }
@@ -343,7 +343,7 @@ class LocalRepository(val db: AppDatabase, val context: android.content.Context)
     suspend fun deleteFile(file: AppFile) = withContext(NonCancellable) {
         appFileDao.deleteFile(file)
         pushLiveSync { email ->
-            com.example.api.AppDataLiveSyncEngine.pushFileToCloud(context, email, file, isDeleted = true)
+            com.example.api.SameUserMultiDeviceSyncManager.pushFileToCloud(context, email, file, isDeleted = true)
         }
     }
 
@@ -382,7 +382,7 @@ class LocalRepository(val db: AppDatabase, val context: android.content.Context)
         val id = financeTransactionDao.insertTransaction(transaction)
         val saved = transaction.copy(id = id.toInt())
         pushLiveSync { email ->
-            com.example.api.AppDataLiveSyncEngine.pushFinanceToCloud(context, email, saved)
+            com.example.api.SameUserMultiDeviceSyncManager.pushFinanceToCloud(context, email, saved)
         }
         id
     }
@@ -390,7 +390,7 @@ class LocalRepository(val db: AppDatabase, val context: android.content.Context)
     suspend fun deleteFinanceTransaction(transaction: FinanceTransaction) = withContext(NonCancellable) {
         financeTransactionDao.deleteTransaction(transaction)
         pushLiveSync { email ->
-            com.example.api.AppDataLiveSyncEngine.pushFinanceToCloud(context, email, transaction, isDeleted = true)
+            com.example.api.SameUserMultiDeviceSyncManager.pushFinanceToCloud(context, email, transaction, isDeleted = true)
         }
     }
 

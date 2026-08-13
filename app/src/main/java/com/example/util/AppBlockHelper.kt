@@ -939,6 +939,69 @@ object AppBlockHelper {
         }
     }
 
+    fun isSpotifyWebAppEnabled(context: Context): Boolean {
+        return context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE).getBoolean("spotify_web_app_enabled", true)
+    }
+
+    fun setSpotifyWebAppEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().putBoolean("spotify_web_app_enabled", enabled).apply()
+    }
+
+    fun isSpotifyOverrideOfficialApp(context: Context): Boolean {
+        return context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE).getBoolean("spotify_override_official_app", false)
+    }
+
+    fun setSpotifyOverrideOfficialApp(context: Context, enabled: Boolean) {
+        context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().putBoolean("spotify_override_official_app", enabled).apply()
+    }
+
+    @Volatile
+    var isAntiSpotifyWebAppOpen: Boolean = false
+
+    fun shouldOverrideSpotifyApp(context: Context): Boolean {
+        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        return prefs.getBoolean("spotify_override_official_app", false) ||
+                (isSpotifyWebAppEnabled(context) && isSpotifyOverrideOfficialApp(context))
+    }
+
+    fun redirectToAntiSpotifyWebApp(context: Context) {
+        try {
+            isAntiSpotifyWebAppOpen = true
+            val launchIntent = Intent(context, com.example.MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("OPEN_SPOTIFY_WEB_APP", true)
+                putExtra("NAVIGATE_TO", "SPOTIFY_WEB_APP")
+            }
+            context.startActivity(launchIntent)
+        } catch (e: Exception) {
+            Log.e("AppBlockHelper", "Error redirecting to AntiSpotify Web App", e)
+        }
+    }
+
+    fun isSpotifySelectiveBlockingEnabled(context: Context): Boolean {
+        return context.getSharedPreferences("spotify_blocker_prefs", Context.MODE_PRIVATE).getBoolean("spotify_use_selective_blocking", true)
+    }
+
+    fun setSpotifySelectiveBlockingEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences("spotify_blocker_prefs", Context.MODE_PRIVATE).edit().putBoolean("spotify_use_selective_blocking", enabled).apply()
+    }
+
+    fun isSpotifyAdMuteEnabled(context: Context): Boolean {
+        return context.getSharedPreferences("spotify_blocker_prefs", Context.MODE_PRIVATE).getBoolean("spotify_mute_ads", true)
+    }
+
+    fun setSpotifyAdMuteEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences("spotify_blocker_prefs", Context.MODE_PRIVATE).edit().putBoolean("spotify_mute_ads", enabled).apply()
+    }
+
+    fun isSpotifyPodcastsBlocked(context: Context): Boolean {
+        return context.getSharedPreferences("spotify_blocker_prefs", Context.MODE_PRIVATE).getBoolean("spotify_podcasts_blocked", false)
+    }
+
+    fun setSpotifyPodcastsBlocked(context: Context, enabled: Boolean) {
+        context.getSharedPreferences("spotify_blocker_prefs", Context.MODE_PRIVATE).edit().putBoolean("spotify_podcasts_blocked", enabled).apply()
+    }
+
     fun isIgSelectiveBlockingEnabled(context: Context): Boolean {
         if (!isCacheInitialized) initializeCache(context)
         return cachedIgUseSelective

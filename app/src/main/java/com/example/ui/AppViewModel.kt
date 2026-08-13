@@ -22,7 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 enum class Screen {
-    LOGIN, PROFILE_SETUP, PERMISSION_ONBOARDING, CALENDAR_OPTIMIZATION_ONBOARDING, DEEPA_AI, KEEP_NOTES, SEARCH, TASKS, CALENDAR, TIMER, HABITS, COUNTDOWN, JOURNAL, CONTACTS, FILE_EXPLORER, FINANCES, ANALYTICS, SETTINGS, HEALTH, LIVE_SPHERE, ARENA, FOCUS_LOCKER, MESSAGES, FLEX_GRID_STUDIO, INSTAGRAM_WEB_APP, YOUTUBE_WEB_APP, SPOTIFY_WEB_APP, OBSIDIAN_ARCHITECTURE, GOOGLE_DRIVE_SYNC
+    LOGIN, PROFILE_SETUP, PERMISSION_ONBOARDING, CALENDAR_OPTIMIZATION_ONBOARDING, DEEPA_AI, KEEP_NOTES, SEARCH, TASKS, CALENDAR, TIMER, HABITS, COUNTDOWN, JOURNAL, CONTACTS, FILE_EXPLORER, FINANCES, ANALYTICS, SETTINGS, HEALTH, LIVE_SPHERE, ARENA, FOCUS_LOCKER, MESSAGES, FLEX_GRID_STUDIO, INSTAGRAM_WEB_APP, YOUTUBE_WEB_APP, SPOTIFY_WEB_APP, OBSIDIAN_ARCHITECTURE, GOOGLE_DRIVE_SYNC, MOVIE_TRACKER
 }
 
 
@@ -671,13 +671,45 @@ class AppViewModel(
     private val _spotifyWebAppEnabled = MutableStateFlow(true)
     val spotifyWebAppEnabled: StateFlow<Boolean> = _spotifyWebAppEnabled.asStateFlow()
 
+    private val _spotifyOverrideOfficialApp = MutableStateFlow(false)
+    val spotifyOverrideOfficialApp: StateFlow<Boolean> = _spotifyOverrideOfficialApp.asStateFlow()
+
+    private val _spotifyAdMuteEnabled = MutableStateFlow(true)
+    val spotifyAdMuteEnabled: StateFlow<Boolean> = _spotifyAdMuteEnabled.asStateFlow()
+
+    private val _spotifyPodcastsBlocked = MutableStateFlow(false)
+    val spotifyPodcastsBlocked: StateFlow<Boolean> = _spotifyPodcastsBlocked.asStateFlow()
+
     fun setSpotifyWebAppEnabled(enabled: Boolean) {
         _spotifyWebAppEnabled.value = enabled
         val prefs = getApplication<android.app.Application>().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
         prefs.edit().putBoolean("spotify_web_app_enabled", enabled).apply()
+        com.example.util.AppBlockHelper.setSpotifyWebAppEnabled(getApplication(), enabled)
         if (enabled) {
             com.example.util.ShortcutUtils.createSpotifyShortcut(getApplication())
         }
+    }
+
+    fun setSpotifyOverrideOfficialApp(enabled: Boolean) {
+        _spotifyOverrideOfficialApp.value = enabled
+        val prefs = getApplication<android.app.Application>().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("spotify_override_official_app", enabled).apply()
+        com.example.util.AppBlockHelper.setSpotifyOverrideOfficialApp(getApplication(), enabled)
+        if (enabled) {
+            _spotifyWebAppEnabled.value = true
+            prefs.edit().putBoolean("spotify_web_app_enabled", true).apply()
+            com.example.util.AppBlockHelper.setSpotifyWebAppEnabled(getApplication(), true)
+        }
+    }
+
+    fun setSpotifyAdMuteEnabled(enabled: Boolean) {
+        _spotifyAdMuteEnabled.value = enabled
+        com.example.util.AppBlockHelper.setSpotifyAdMuteEnabled(getApplication(), enabled)
+    }
+
+    fun setSpotifyPodcastsBlocked(blocked: Boolean) {
+        _spotifyPodcastsBlocked.value = blocked
+        com.example.util.AppBlockHelper.setSpotifyPodcastsBlocked(getApplication(), blocked)
     }
 
     fun setYouTubeWebAppEnabled(enabled: Boolean) {
@@ -1739,83 +1771,83 @@ class AppViewModel(
     }
 
     fun prepareAndShowEndSessionDialog(sessionType: String, elapsedSecs: Int) {
-        var effectiveElapsedSecs = elapsedSecs
-        if (effectiveElapsedSecs < 1) {
-            val managerFocusSecs = (com.example.util.FocusTimerManager.accumulatedSessionTimeMs.value / 1000).toInt()
-            val managerStopwatchSecs = com.example.util.FocusTimerManager.stopwatchSeconds.value
-            val managerCumulativeSecs = com.example.util.FocusTimerManager.cumulativeSessionFocusSeconds.value
-            val maxManagerSecs = maxOf(managerFocusSecs, managerStopwatchSecs, managerCumulativeSecs)
-            
-            if (maxManagerSecs > 0) {
-                effectiveElapsedSecs = maxManagerSecs
-            } else {
-                try {
-                    val dbSession = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                        com.example.data.AppDatabase.getInstance(getApplication()).localActiveSessionDao().getActiveSession()
-                    }
-                    if (dbSession != null) {
-                        val dbFocusMs = if (dbSession.status == "FOCUSING") {
-                            com.example.util.TimeEngine.calculateLiveElapsedMs(dbSession.base_focus_time_ms, dbSession.last_event_ts_ms, dbSession.status)
-                        } else {
-                            dbSession.base_focus_time_ms
+        viewModelScope.launch {
+            var effectiveElapsedSecs = elapsedSecs
+            if (effectiveElapsedSecs < 1) {
+                val managerFocusSecs = (com.example.util.FocusTimerManager.accumulatedSessionTimeMs.value / 1000).toInt()
+                val managerStopwatchSecs = com.example.util.FocusTimerManager.stopwatchSeconds.value
+                val managerCumulativeSecs = com.example.util.FocusTimerManager.cumulativeSessionFocusSeconds.value
+                val maxManagerSecs = maxOf(managerFocusSecs, managerStopwatchSecs, managerCumulativeSecs)
+                
+                if (maxManagerSecs > 0) {
+                    effectiveElapsedSecs = maxManagerSecs
+                } else {
+                    try {
+                        val dbSession = withContext(Dispatchers.IO) {
+                            com.example.data.AppDatabase.getInstance(getApplication()).localActiveSessionDao().getActiveSession()
                         }
-                        val dbSecs = (dbFocusMs / 1000).toInt()
-                        if (dbSecs > 0) {
-                            effectiveElapsedSecs = dbSecs
+                        if (dbSession != null) {
+                            val dbFocusMs = if (dbSession.status == "FOCUSING") {
+                                com.example.util.TimeEngine.calculateLiveElapsedMs(dbSession.base_focus_time_ms, dbSession.last_event_ts_ms, dbSession.status)
+                            } else {
+                                dbSession.base_focus_time_ms
+                            }
+                            val dbSecs = (dbFocusMs / 1000).toInt()
+                            if (dbSecs > 0) {
+                                effectiveElapsedSecs = dbSecs
+                            }
                         }
+                    } catch (e: Exception) {
+                        Log.e("AppViewModel", "Error recovering active session elapsed time from DB", e)
                     }
-                } catch (e: Exception) {
-                    Log.e("AppViewModel", "Error recovering active session elapsed time from DB", e)
                 }
             }
-        }
 
-        if (effectiveElapsedSecs < 1) {
-            val appContext = getApplication<android.app.Application>()
+            if (effectiveElapsedSecs < 1) {
+                val appContext = getApplication<android.app.Application>()
+                if (sessionType == "timer") {
+                    resetTimer(saveSession = false)
+                } else {
+                    resetStopwatch(saveSession = false)
+                }
+                android.widget.Toast.makeText(appContext, "Session too short to save! (< 1s)", android.widget.Toast.LENGTH_SHORT).show()
+                setTimerImmersive(false)
+                return@launch
+            }
+            
+            setStopSessionType(sessionType)
+            setStoppedElapsedSeconds(effectiveElapsedSecs)
+            setEditHoursInput(effectiveElapsedSecs / 3600)
+            setEditMinutesInput((effectiveElapsedSecs % 3600) / 60)
+            setEditSecondsInput(effectiveElapsedSecs % 60)
+            setShowElapsedTimeDialog(false)
+
+            // Directly save the session in the database locally and synchronize with the cloud!
+            FocusTimerManager.persistFocusSession(
+                context = getApplication(),
+                elapsedSecs = effectiveElapsedSecs,
+                isTimer = (sessionType == "timer")
+            )
+
+            // Reset timer / stopwatch state locally FIRST so all flags (isPaused, isRunning, etc.) are cleared immediately
             if (sessionType == "timer") {
                 resetTimer(saveSession = false)
             } else {
                 resetStopwatch(saveSession = false)
             }
-            android.widget.Toast.makeText(appContext, "Session too short to save! (< 1s)", android.widget.Toast.LENGTH_SHORT).show()
+            clearPendingFocusReview()
+            setSessionStartTimestamp(null)
+            setFocusNotesInput("")
             setTimerImmersive(false)
-            return
-        }
-        
-        setStopSessionType(sessionType)
-        setStoppedElapsedSeconds(effectiveElapsedSecs)
-        setEditHoursInput(effectiveElapsedSecs / 3600)
-        setEditMinutesInput((effectiveElapsedSecs % 3600) / 60)
-        setEditSecondsInput(effectiveElapsedSecs % 60)
-        setShowElapsedTimeDialog(false) // Disable show elapsed time dialog completely!
 
-        // Directly save the session in the database locally and synchronize with the cloud!
-        FocusTimerManager.persistFocusSession(
-            context = getApplication(),
-            elapsedSecs = effectiveElapsedSecs,
-            isTimer = (sessionType == "timer")
-        )
+            val rtdbEmail = com.example.api.DynamicCommandManager.activeEmail
+            if (rtdbEmail.isNotEmpty()) {
+                val timeline = com.example.api.DynamicCommandManager.currentTimelineFlow.value
+                val mode = com.example.api.DynamicCommandManager.currentTimerModeFlow.value
+                val task = attachedTask.value?.title ?: "Focus Session"
+                val tag = attachedTag.value ?: "Study"
+                val sessionId = com.example.api.DynamicCommandManager.activeSessionId
 
-        // Reset timer / stopwatch state locally FIRST so all flags (isPaused, isRunning, etc.) are cleared immediately
-        if (sessionType == "timer") {
-            resetTimer(saveSession = false)
-        } else {
-            resetStopwatch(saveSession = false)
-        }
-        clearPendingFocusReview()
-        setSessionStartTimestamp(null)
-        setFocusNotesInput("")
-        setTimerImmersive(false)
-
-        val rtdbEmail = com.example.api.DynamicCommandManager.activeEmail
-        if (rtdbEmail.isNotEmpty()) {
-            val timeline = com.example.api.DynamicCommandManager.currentTimelineFlow.value
-            val mode = com.example.api.DynamicCommandManager.currentTimerModeFlow.value
-            val task = attachedTask.value?.title ?: "Focus Session"
-            val tag = attachedTag.value ?: "Study"
-            val sessionId = com.example.api.DynamicCommandManager.activeSessionId
-
-            viewModelScope.launch {
                 com.example.api.SessionTerminator.executeSessionTermination(
                     context = getApplication(),
                     email = rtdbEmail,
@@ -1826,13 +1858,13 @@ class AppViewModel(
                     originalSessionId = sessionId
                 )
             }
+
+            // Preserve start time and pause ranges before wiping out current session tracking
+            com.example.util.FocusTimerManager.recordSessionCompleteOrReset(isSaving = true)
+
+            val appContext = getApplication<android.app.Application>()
+            android.widget.Toast.makeText(appContext, "Focus session saved successfully!", android.widget.Toast.LENGTH_SHORT).show()
         }
-
-        // Preserve start time and pause ranges before wiping out current session tracking
-        com.example.util.FocusTimerManager.recordSessionCompleteOrReset(isSaving = true)
-
-        val appContext = getApplication<android.app.Application>()
-        android.widget.Toast.makeText(appContext, "Focus session saved successfully!", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private val _sessionStartTimestamp = MutableStateFlow<Long?>(null)
@@ -2317,7 +2349,7 @@ class AppViewModel(
     fun updateDailyFocusHoursTarget(hours: Int) {
         _dailyFocusHoursTarget.value = hours
         prefs.edit().putInt("daily_focus_hours_target", hours).putInt("daily_focus_target_hours", hours).apply()
-        com.example.widget.WidgetUpdater.updateAllWidgets(getApplication())
+        com.example.widget.WidgetManager.updateAllWidgets(getApplication())
     }
 
     fun toggleTabVisibility(screen: Screen) {
@@ -2693,6 +2725,27 @@ class AppViewModel(
         }
     }
 
+    private val _systemCalendarEvents = kotlinx.coroutines.flow.MutableStateFlow<List<com.example.util.SystemCalendarEvent>>(emptyList())
+    val systemCalendarEvents: kotlinx.coroutines.flow.StateFlow<List<com.example.util.SystemCalendarEvent>> = _systemCalendarEvents.asStateFlow()
+
+    fun loadSystemCalendarEvents(context: android.content.Context) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val calStart = java.util.Calendar.getInstance()
+                calStart.add(java.util.Calendar.DAY_OF_YEAR, -365)
+                val calEnd = java.util.Calendar.getInstance()
+                calEnd.add(java.util.Calendar.DAY_OF_YEAR, 365)
+
+                val events = com.example.util.GoogleCalendarSyncHelper.fetchSystemCalendarEvents(
+                    context, calStart.timeInMillis, calEnd.timeInMillis
+                )
+                _systemCalendarEvents.value = events
+            } catch (e: Exception) {
+                android.util.Log.e("AppViewModel", "Failed to load system calendar events: ${e.message}")
+            }
+        }
+    }
+
     fun syncGoogleCalendar(context: android.content.Context) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             _calendarSyncStatus.value = "Syncing..."
@@ -2717,9 +2770,14 @@ class AppViewModel(
                     onUpdateTask = { updatedTask ->
                         repository.updateTask(updatedTask)
                         com.example.util.AlarmScheduler.scheduleReminder(getApplication(), updatedTask)
+                    },
+                    onDeleteTask = { taskToDelete ->
+                        repository.deleteTask(taskToDelete)
+                        com.example.util.AlarmScheduler.cancelReminder(getApplication(), taskToDelete.id)
                     }
                 )
                 _calendarSyncStatus.value = result
+                loadSystemCalendarEvents(context)
             } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -2756,6 +2814,24 @@ class AppViewModel(
                 }
             }
         }
+    }
+
+    fun activateGuestLogin() {
+        val guestUser = "Guest"
+        prefs.edit()
+            .putString("current_username", guestUser)
+            .putBoolean("is_logged_in", true)
+            .putString("user_name_$guestUser", "Guest User")
+            .putString("user_nickname_$guestUser", "Guest")
+            .putString("user_emoji_$guestUser", "👤")
+            .apply()
+        
+        setLoggedIn(
+            username = guestUser,
+            isAdminUser = false
+        )
+        
+        navigateTo(Screen.DEEPA_AI)
     }
 
     fun activateTesterMode() {
@@ -2837,12 +2913,23 @@ class AppViewModel(
                 com.example.api.ArenaLeaderboardEngine.startListening(getApplication(), email, "TODAY")
                 com.example.api.BellReceiverService.startListening(getApplication(), email)
                 com.example.api.FocusLockerManager.checkForExistingRoomsAndReconnect(getApplication(), email)
-                com.example.api.AppDataLiveSyncEngine.startListening(getApplication(), email, repository.db)
-                com.example.api.AppDataLiveSyncEngine.pullAllDataFromCloud(getApplication(), email, repository.db)
+                com.example.api.SameUserMultiDeviceSyncManager.startLiveSync(getApplication(), email, repository.db)
+                com.example.api.SameUserMultiDeviceSyncManager.fetchAndSyncAllData(getApplication(), email, repository.db)
                 syncSyllabusCompletionFromCloud()
                 com.example.api.WeeklyStatsUpdater.adoptCloudStatsOnLogin(getApplication(), email)
                 com.example.api.FirebaseRepairKit.repairUserData(getApplication(), email)
                 com.example.api.WeeklyStatsUpdater.updateWeeklyStats(getApplication(), email, 0L, "")
+            }
+        }
+
+        viewModelScope.launch {
+            _userEmail.collect { em ->
+                val emailToUse = em.ifEmpty { prefs.getString("user_email", "") ?: "" }
+                if (emailToUse.isNotBlank()) {
+                    com.example.api.DynamicCommandManager.initialize(getApplication(), emailToUse)
+                    com.example.api.DynamicCommandManager.startListeningToActiveFocusTimer(getApplication(), emailToUse)
+                    com.example.api.DynamicCommandManager.forceReadActiveFocusTimerAndCalibrate(getApplication(), emailToUse)
+                }
             }
         }
 
@@ -3386,9 +3473,7 @@ class AppViewModel(
 
             // 2. Stop live sync engines
             try {
-                com.example.api.AppDataLiveSyncEngine.stopListening(context)
-                com.example.api.KeepNotesLiveSyncEngine.stopListening(context)
-                com.example.api.UserSettingsSyncEngine.stopListening(context, email)
+                com.example.api.SameUserMultiDeviceSyncManager.stopLiveSync(context)
                 com.example.api.BellReceiverService.stopListening()
                 com.example.api.FocusLockerManager.stopListening()
             } catch (e: Exception) {
@@ -5331,7 +5416,7 @@ class AppViewModel(
             val attCount = mutableAttachments.filter { !it.startsWith("loc:") }.size
             notifyJournalEntryToChat(insertedId, cleanTitle, date, attCount)
             com.example.widget.WidgetPhotoManager.syncWidgetCopiesForEntries(getApplication(), listOf(entry))
-            com.example.widget.WidgetUpdater.updatePhotoShowerWidget(getApplication())
+            com.example.widget.WidgetManager.updatePhotoShowerWidget(getApplication())
         }
     }
 
@@ -5345,7 +5430,7 @@ class AppViewModel(
                 checkOffDiaryHabitForToday()
             }
             com.example.widget.WidgetPhotoManager.syncWidgetCopiesForEntries(getApplication(), listOf(updatedEntry))
-            com.example.widget.WidgetUpdater.updatePhotoShowerWidget(getApplication())
+            com.example.widget.WidgetManager.updatePhotoShowerWidget(getApplication())
         }
     }
 
@@ -5670,7 +5755,7 @@ class AppViewModel(
         viewModelScope.launch {
             com.example.widget.WidgetPhotoManager.deleteWidgetCopiesForEntry(getApplication(), entry)
             repository.deleteJournal(entry)
-            com.example.widget.WidgetUpdater.updatePhotoShowerWidget(getApplication())
+            com.example.widget.WidgetManager.updatePhotoShowerWidget(getApplication())
         }
     }
 
@@ -10563,7 +10648,7 @@ class AppViewModel(
         }
         viewModelScope.launch {
             repository.allJournalEntries.collect {
-                com.example.widget.WidgetUpdater.updatePhotoShowerWidget(getApplication())
+                com.example.widget.WidgetManager.updatePhotoShowerWidget(getApplication())
             }
         }
         viewModelScope.launch {
@@ -10693,8 +10778,8 @@ class AppViewModel(
             com.example.api.ArenaLeaderboardEngine.startListening(getApplication(), emailToUse, "TODAY")
             com.example.api.BellReceiverService.startListening(getApplication(), emailToUse)
             com.example.api.FocusLockerManager.checkForExistingRoomsAndReconnect(getApplication(), emailToUse)
-            com.example.api.AppDataLiveSyncEngine.startListening(getApplication(), emailToUse, repository.db)
-            com.example.api.AppDataLiveSyncEngine.pullAllDataFromCloud(getApplication(), emailToUse, repository.db)
+            com.example.api.SameUserMultiDeviceSyncManager.startLiveSync(getApplication(), emailToUse, repository.db)
+            com.example.api.SameUserMultiDeviceSyncManager.fetchAndSyncAllData(getApplication(), emailToUse, repository.db)
             syncSyllabusCompletionFromCloud()
             startListeningForSharedTasks()
             com.example.api.WeeklyStatsUpdater.adoptCloudStatsOnLogin(getApplication(), emailToUse)
@@ -10854,6 +10939,9 @@ class AppViewModel(
         _showClockTimeInFullScreen.value = prefs.getBoolean("show_clock_time_in_fullscreen", true)
         _showBatteryInFullScreen.value = prefs.getBoolean("show_battery_in_fullscreen", true)
         _spotifyWebAppEnabled.value = prefs.getBoolean("spotify_web_app_enabled", true)
+        _spotifyOverrideOfficialApp.value = prefs.getBoolean("spotify_override_official_app", false)
+        _spotifyAdMuteEnabled.value = com.example.util.AppBlockHelper.isSpotifyAdMuteEnabled(getApplication())
+        _spotifyPodcastsBlocked.value = com.example.util.AppBlockHelper.isSpotifyPodcastsBlocked(getApplication())
         _instagramWebAppEnabled.value = prefs.getBoolean("instagram_web_app_enabled", false)
         _instagramOverrideOfficialApp.value = prefs.getBoolean("instagram_override_official_app", false)
         _instagramFilterNotifications.value = prefs.getBoolean("instagram_filter_notifications", true)
@@ -11465,6 +11553,249 @@ fun createAndPackageSharedTaskFolder(
 
             override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
         })
+    }
+
+    // --- MOVIE TRACKER ENGINE ---
+    private val _movieTrackerItems = MutableStateFlow<List<com.example.data.MovieItem>>(emptyList())
+    val movieTrackerItems: StateFlow<List<com.example.data.MovieItem>> = _movieTrackerItems.asStateFlow()
+
+    private val _movieSearchQuery = MutableStateFlow("")
+    val movieSearchQuery: StateFlow<String> = _movieSearchQuery.asStateFlow()
+
+    private val _movieSearchResults = MutableStateFlow<List<com.example.data.MovieItem>>(emptyList())
+    val movieSearchResults: StateFlow<List<com.example.data.MovieItem>> = _movieSearchResults.asStateFlow()
+
+    private val _isMovieSearching = MutableStateFlow(false)
+    val isMovieSearching: StateFlow<Boolean> = _isMovieSearching.asStateFlow()
+
+    private val _movieRecommendations = MutableStateFlow<List<com.example.data.MovieRecommendation>>(emptyList())
+    val movieRecommendations: StateFlow<List<com.example.data.MovieRecommendation>> = _movieRecommendations.asStateFlow()
+
+    private val _isMovieRecommendationsLoading = MutableStateFlow(false)
+    val isMovieRecommendationsLoading: StateFlow<Boolean> = _isMovieRecommendationsLoading.asStateFlow()
+
+    private val movieMoshi = com.squareup.moshi.Moshi.Builder()
+        .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory())
+        .build()
+
+    init {
+        loadSavedMovieTrackerData()
+    }
+
+    private fun loadSavedMovieTrackerData() {
+        try {
+            val jsonStr = prefs.getString("movie_tracker_json_data", null)
+            if (!jsonStr.isNullOrEmpty()) {
+                val listType = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.example.data.MovieItem::class.java)
+                val adapter = movieMoshi.adapter<List<com.example.data.MovieItem>>(listType)
+                val loaded = adapter.fromJson(jsonStr)
+                if (loaded != null) {
+                    _movieTrackerItems.value = loaded
+                }
+            } else {
+                // Initial default items for showcase
+                val defaults = com.example.api.MovieSearchService.popularImdbShowcase.take(2).map {
+                    if (it.title == "Breaking Bad") it.copy(userStatus = com.example.data.MovieWatchStatus.WATCHING) else it
+                }
+                _movieTrackerItems.value = defaults
+                saveMovieTrackerData(defaults)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun saveMovieTrackerData(items: List<com.example.data.MovieItem>) {
+        try {
+            val listType = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.example.data.MovieItem::class.java)
+            val adapter = movieMoshi.adapter<List<com.example.data.MovieItem>>(listType)
+            val jsonStr = adapter.toJson(items)
+            prefs.edit().putString("movie_tracker_json_data", jsonStr).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun setMovieSearchQuery(query: String) {
+        _movieSearchQuery.value = query
+    }
+
+    fun searchMoviesOrShows(query: String) {
+        _movieSearchQuery.value = query
+        if (query.trim().isEmpty()) {
+            _movieSearchResults.value = emptyList()
+            _isMovieSearching.value = false
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _isMovieSearching.value = true
+            val results = com.example.api.MovieSearchService.searchOnlineMovieOrShow(query)
+            _movieSearchResults.value = results
+            _isMovieSearching.value = false
+        }
+    }
+
+    fun addMovieToTracker(item: com.example.data.MovieItem, initialStatus: com.example.data.MovieWatchStatus = com.example.data.MovieWatchStatus.WATCHLIST) {
+        val current = _movieTrackerItems.value.toMutableList()
+        val existingIndex = current.indexOfFirst { (it.imdbId.isNotEmpty() && it.imdbId == item.imdbId) || it.title.equals(item.title, ignoreCase = true) }
+
+        val newItem = item.copy(
+            id = if (existingIndex >= 0) current[existingIndex].id else (item.id.ifEmpty { java.util.UUID.randomUUID().toString() }),
+            userStatus = initialStatus,
+            watchedDate = System.currentTimeMillis()
+        )
+
+        if (existingIndex >= 0) {
+            current[existingIndex] = newItem
+        } else {
+            current.add(0, newItem)
+        }
+
+        _movieTrackerItems.value = current
+        saveMovieTrackerData(current)
+    }
+
+    fun updateMovieWatchStatus(movieId: String, newStatus: com.example.data.MovieWatchStatus) {
+        val current = _movieTrackerItems.value.toMutableList()
+        val index = current.indexOfFirst { it.id == movieId }
+        if (index >= 0) {
+            val oldItem = current[index]
+            val updated = oldItem.copy(
+                userStatus = newStatus,
+                watchedDate = System.currentTimeMillis()
+            )
+            current[index] = updated
+            _movieTrackerItems.value = current
+            saveMovieTrackerData(current)
+        }
+    }
+
+    fun addHotTakeToMovie(movieId: String, rating: Float, review: String, userName: String = "You") {
+        val current = _movieTrackerItems.value.toMutableList()
+        val index = current.indexOfFirst { it.id == movieId }
+        if (index >= 0) {
+            val item = current[index]
+            val newTake = com.example.data.UserHotTake(
+                id = java.util.UUID.randomUUID().toString(),
+                userId = "user_me",
+                userName = userName,
+                avatarUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100",
+                rating = rating,
+                review = review,
+                timestamp = System.currentTimeMillis()
+            )
+            val updatedHotTakes = listOf(newTake) + item.hotTakes
+            val updated = item.copy(
+                hotTakes = updatedHotTakes,
+                userRating = rating,
+                userStatus = com.example.data.MovieWatchStatus.COMPLETED
+            )
+            current[index] = updated
+            _movieTrackerItems.value = current
+            saveMovieTrackerData(current)
+        }
+    }
+
+    fun toggleEpisodeWatched(movieId: String, seasonNumber: Int, episodeNumber: Int) {
+        val current = _movieTrackerItems.value.toMutableList()
+        val index = current.indexOfFirst { it.id == movieId }
+        if (index >= 0) {
+            val item = current[index]
+            val updatedSeasons = item.seasons.map { season ->
+                if (season.seasonNumber == seasonNumber) {
+                    val updatedEpisodes = season.episodes.map { ep ->
+                        if (ep.episodeNumber == episodeNumber) {
+                            ep.copy(isWatched = !ep.isWatched)
+                        } else ep
+                    }
+                    season.copy(episodes = updatedEpisodes)
+                } else season
+            }
+
+            val totalWatched = updatedSeasons.sumOf { s -> s.episodes.count { it.isWatched } }
+            val totalEps = updatedSeasons.sumOf { it.episodes.size }
+
+            val newStatus = when {
+                totalWatched == totalEps && totalEps > 0 -> com.example.data.MovieWatchStatus.COMPLETED
+                totalWatched > 0 -> com.example.data.MovieWatchStatus.WATCHING
+                else -> item.userStatus
+            }
+
+            val updatedItem = item.copy(
+                seasons = updatedSeasons,
+                watchedEpisodesCount = totalWatched,
+                userStatus = newStatus
+            )
+            current[index] = updatedItem
+            _movieTrackerItems.value = current
+            saveMovieTrackerData(current)
+        }
+    }
+
+    fun markNextEpisodeWatched(movieId: String) {
+        val current = _movieTrackerItems.value.toMutableList()
+        val index = current.indexOfFirst { it.id == movieId }
+        if (index >= 0) {
+            val item = current[index]
+            var marked = false
+            val updatedSeasons = item.seasons.map { season ->
+                if (!marked) {
+                    val updatedEpisodes = season.episodes.map { ep ->
+                        if (!marked && !ep.isWatched) {
+                            marked = true
+                            ep.copy(isWatched = true)
+                        } else ep
+                    }
+                    season.copy(episodes = updatedEpisodes)
+                } else season
+            }
+
+            val totalWatched = updatedSeasons.sumOf { s -> s.episodes.count { it.isWatched } }
+            val totalEps = updatedSeasons.sumOf { it.episodes.size }
+
+            val newStatus = if (totalWatched == totalEps && totalEps > 0) com.example.data.MovieWatchStatus.COMPLETED else com.example.data.MovieWatchStatus.WATCHING
+
+            val updatedItem = item.copy(
+                seasons = updatedSeasons,
+                watchedEpisodesCount = totalWatched,
+                userStatus = newStatus
+            )
+            current[index] = updatedItem
+            _movieTrackerItems.value = current
+            saveMovieTrackerData(current)
+        }
+    }
+
+    fun updateMovieUserRatingAndNotes(movieId: String, rating: Float, notes: String) {
+        val current = _movieTrackerItems.value.toMutableList()
+        val index = current.indexOfFirst { it.id == movieId }
+        if (index >= 0) {
+            val item = current[index]
+            val updated = item.copy(
+                userRating = rating,
+                userNotes = notes
+            )
+            current[index] = updated
+            _movieTrackerItems.value = current
+            saveMovieTrackerData(current)
+        }
+    }
+
+    fun removeMovieFromTracker(movieId: String) {
+        val current = _movieTrackerItems.value.toMutableList()
+        current.removeAll { it.id == movieId }
+        _movieTrackerItems.value = current
+        saveMovieTrackerData(current)
+    }
+
+    fun fetchMovieRecommendations() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isMovieRecommendationsLoading.value = true
+            val recommendations = com.example.api.MovieSearchService.getAiMovieRecommendations(_movieTrackerItems.value)
+            _movieRecommendations.value = recommendations
+            _isMovieRecommendationsLoading.value = false
+        }
     }
 }
 

@@ -115,36 +115,15 @@ class KeepAliveService : Service() {
         
         // 1. INSTANTLY satisfy the Android OS requirement
         createNotificationChannel()
-        if (hasActiveSession()) {
-            val initialNotification = buildKeepAliveNotification()
-            try {
-                startForegroundSafe(NOTIFICATION_ID, initialNotification)
-            } catch (e: Exception) {
-                Log.e("KeepAliveService", "Failed to start service in foreground in onCreate: ${e.message}", e)
-            }
+        val initialNotification = if (hasActiveSession()) {
+            buildKeepAliveNotification()
         } else {
-            val initialNotification = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("LifeOS Active System")
-                .setContentText("Initializing background daemon...")
-                .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                .setPriority(NotificationCompat.PRIORITY_MIN)
-                .setOngoing(true)
-                .setSilent(true)
-                .setOnlyAlertOnce(true)
-                .build()
-            try {
-                startForegroundSafe(NOTIFICATION_ID, initialNotification)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(true)
-                }
-                val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                manager.cancel(NOTIFICATION_ID)
-            } catch (e: Exception) {
-                Log.e("KeepAliveService", "Failed to start/stop service in foreground in onCreate: ${e.message}", e)
-            }
+            buildFallbackNotification()
+        }
+        try {
+            startForegroundSafe(NOTIFICATION_ID, initialNotification)
+        } catch (e: Exception) {
+            Log.e("KeepAliveService", "Failed to start service in foreground in onCreate: ${e.message}", e)
         }
 
         // Dynamically manage WakeLock: only hold it when a timer or stopwatch is actively running
@@ -182,7 +161,7 @@ class KeepAliveService : Service() {
                 Unit
             }.collect {
                 updateNotificationDirectly()
-                com.example.widget.WidgetUpdater.updateAllWidgets(applicationContext)
+                com.example.widget.WidgetManager.updateAllWidgets(applicationContext)
             }
         }
 
@@ -196,7 +175,7 @@ class KeepAliveService : Service() {
                     val currentMin = (com.example.util.FocusTimerManager.accumulatedSessionTimeMs.value / 60000).toInt()
                     if (currentMin != lastUpdateMin) {
                         lastUpdateMin = currentMin
-                        com.example.widget.WidgetUpdater.updateTotalFocusTimeWidget(applicationContext)
+                        com.example.widget.WidgetManager.updateTotalFocusTimeWidget(applicationContext)
                     }
                     delay(15000L)
                 } else {
@@ -210,7 +189,7 @@ class KeepAliveService : Service() {
             com.example.api.PeerLiveSphereManager.peerLiveStates
                 .sample(5000L)
                 .collect {
-                    com.example.widget.WidgetUpdater.updateFriendsFocusWidget(applicationContext)
+                    com.example.widget.WidgetManager.updateFriendsFocusWidget(applicationContext)
                 }
         }
 
@@ -219,7 +198,7 @@ class KeepAliveService : Service() {
             while (isActive) {
                 val prefs = applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
                 val intervalSec = prefs.getInt("journal_photo_widget_interval_sec", 30).coerceAtLeast(5)
-                com.example.widget.WidgetUpdater.updatePhotoShowerWidget(applicationContext, forceNext = true)
+                com.example.widget.WidgetManager.updatePhotoShowerWidget(applicationContext, forceNext = true)
                 delay(intervalSec * 1000L)
             }
         }
@@ -301,7 +280,7 @@ class KeepAliveService : Service() {
                 }
             }
 
-            // Immediately build the actual up-to-date notification and set it as foreground if active, or clear when idle
+            // Immediately build the actual up-to-date notification and set it as foreground
             if (hasActiveSession()) {
                 val notification = buildKeepAliveNotification()
                 startForegroundSafe(NOTIFICATION_ID, notification)
@@ -309,42 +288,15 @@ class KeepAliveService : Service() {
                 val fallbackNotification = buildFallbackNotification()
                 try {
                     startForegroundSafe(NOTIFICATION_ID, fallbackNotification)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        stopForeground(true)
-                    }
-                    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                    manager.cancel(NOTIFICATION_ID)
                 } catch (e: Exception) {
-                    Log.e("KeepAliveService", "Error removing foreground notification when idle: ${e.message}", e)
+                    Log.e("KeepAliveService", "Error setting foreground notification when idle: ${e.message}", e)
                 }
             }
         } catch (e: Exception) {
             Log.e("KeepAliveService", "Error in onStartCommand: ${e.message}", e)
             try {
-                if (hasActiveSession()) {
-                    val fallbackNotification = NotificationCompat.Builder(this, CHANNEL_ID)
-                        .setContentTitle("LifeOS Active System")
-                        .setContentText("Ensuring scheduler accuracy")
-                        .setSmallIcon(android.R.drawable.ic_menu_info_details)
-                        .setPriority(NotificationCompat.PRIORITY_LOW)
-                        .setOngoing(true)
-                        .setSilent(true)
-                        .setOnlyAlertOnce(true)
-                        .build()
-                    startForegroundSafe(NOTIFICATION_ID, fallbackNotification)
-                } else {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        stopForeground(true)
-                    }
-                    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                    manager.cancel(NOTIFICATION_ID)
-                }
+                val fallbackNotification = buildFallbackNotification()
+                startForegroundSafe(NOTIFICATION_ID, fallbackNotification)
             } catch (inner: Exception) {
                 Log.e("KeepAliveService", "Fallback startForeground failed: ${inner.message}", inner)
             }
@@ -357,18 +309,12 @@ class KeepAliveService : Service() {
 
     fun updateNotificationDirectly() {
         try {
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             if (hasActiveSession()) {
                 val notification = buildKeepAliveNotification()
                 startForegroundSafe(NOTIFICATION_ID, notification)
             } else {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                } else {
-                    @Suppress("DEPRECATION")
-                    stopForeground(true)
-                }
-                manager.cancel(NOTIFICATION_ID)
+                val fallbackNotification = buildFallbackNotification()
+                startForegroundSafe(NOTIFICATION_ID, fallbackNotification)
             }
         } catch (e: Exception) {
             Log.e("KeepAliveService", "Failed to update notification directly: ${e.message}", e)

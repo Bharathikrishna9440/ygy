@@ -547,7 +547,8 @@ fun PdfViewerScreen(
                     exit = fadeOut(),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 20.dp)
+                        .navigationBarsPadding()
+                        .padding(bottom = 28.dp)
                 ) {
                     Surface(
                         color = Color.Black.copy(alpha = 0.75f),

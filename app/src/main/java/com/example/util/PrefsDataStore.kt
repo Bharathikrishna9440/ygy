@@ -50,10 +50,16 @@ object PrefsDataStore {
     }
 
     fun getStringBlocking(context: Context, key: String, defaultValue: String? = null): String? {
-        return runBlocking { getString(context, key, defaultValue) }
+        val prefs = context.getSharedPreferences("lifeos_settings_sp", Context.MODE_PRIVATE)
+        return prefs.getString(key, defaultValue)
     }
 
     fun putStringBlocking(context: Context, key: String, value: String?) {
-        runBlocking { putString(context, key, value) }
+        val prefs = context.getSharedPreferences("lifeos_settings_sp", Context.MODE_PRIVATE)
+        if (value != null) {
+            prefs.edit().putString(key, value).apply()
+        } else {
+            prefs.edit().remove(key).apply()
+        }
     }
 }

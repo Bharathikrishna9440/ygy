@@ -58,7 +58,7 @@ class WidgetConfigActivity : ComponentActivity() {
         val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         prefs.edit().putString("widget_glass_style", glassStyle).apply()
 
-        WidgetUpdater.updateAllWidgets(this)
+        WidgetManager.updateAllWidgets(this)
 
         val resultValue = Intent().apply {
             putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)

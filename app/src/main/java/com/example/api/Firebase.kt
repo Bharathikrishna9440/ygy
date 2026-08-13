@@ -547,13 +547,11 @@ suspend fun <T> com.google.android.gms.tasks.Task<T>.awaitTask(): T = kotlinx.co
     // triggerProfileUpdated removed
 
 
-    fun getTodaySavedFocusMs(context: Context): Long {
-        return try {
+    suspend fun getTodaySavedFocusMs(context: Context): Long = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
             val db = com.example.data.AppDatabase.getInstance(context)
             val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-            val records = kotlinx.coroutines.runBlocking {
-                db.focusRecordDao().getRecordsForDate(todayStr)
-            }
+            val records = db.focusRecordDao().getRecordsForDate(todayStr)
             records.sumOf { it.durationSeconds * 1000L }
         } catch (e: Exception) {
             android.util.Log.e("FirebaseSyncManager", "Failed to getTodaySavedFocusMs", e)

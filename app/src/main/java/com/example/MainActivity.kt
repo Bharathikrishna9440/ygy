@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -102,6 +103,7 @@ class MainActivity : ComponentActivity() {
         viewModel.recordUserInteraction(applicationContext)
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         volumeControlStream = android.media.AudioManager.STREAM_MUSIC
@@ -307,6 +309,9 @@ class MainActivity : ComponentActivity() {
                 val isLoggedInState by viewModel.isLoggedIn.collectAsStateWithLifecycle()
 
                 var showSocialOnboarding by remember {
+                    mutableStateOf(false)
+                }
+                var showNonEssentialsMenu by remember {
                     mutableStateOf(false)
                 }
                 LaunchedEffect(isLoggedInState) {
@@ -803,6 +808,7 @@ class MainActivity : ComponentActivity() {
                                             Screen.SPOTIFY_WEB_APP -> com.example.ui.components.SpotifyWebBrowserScreen(viewModel = viewModel, onBack = { viewModel.navigateTo(Screen.SETTINGS) })
                                             Screen.OBSIDIAN_ARCHITECTURE -> com.example.ui.components.ObsidianArchitectureView(viewModel = viewModel, onBack = { viewModel.navigateTo(Screen.SETTINGS) })
                                             Screen.GOOGLE_DRIVE_SYNC -> com.example.ui.components.GoogleDriveSyncView(viewModel = viewModel, onBack = { viewModel.navigateTo(Screen.SETTINGS) })
+                                            Screen.MOVIE_TRACKER -> com.example.ui.components.MovieTrackerView(viewModel = viewModel)
                                         }
                                     }
                                 }
@@ -1153,6 +1159,32 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
                                     }
+
+                                    // Non-Essentials 3-Dot Menu Button
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .bouncyClick { showNonEssentialsMenu = true }
+                                            .padding(vertical = 8.dp)
+                                            .testTag("nav_item_non_essentials"),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(height = 36.dp, width = 56.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(if (showNonEssentialsMenu) WaterBlue.copy(alpha = 0.2f) else Color.Transparent),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MoreVert,
+                                                contentDescription = "Non-Essentials",
+                                                tint = if (showNonEssentialsMenu) WaterBlue else Color.LightGray.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+
                                     Spacer(modifier = Modifier.height(16.dp))
                                 }
                             }
@@ -1259,6 +1291,32 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
                                     }
+
+                                    // Non-Essentials 3-Dot Menu Button
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .bouncyClick { showNonEssentialsMenu = true }
+                                            .padding(vertical = 8.dp)
+                                            .testTag("nav_item_non_essentials"),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(height = 36.dp, width = 56.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(if (showNonEssentialsMenu) WaterBlue.copy(alpha = 0.2f) else Color.Transparent),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MoreVert,
+                                                contentDescription = "Non-Essentials",
+                                                tint = if (showNonEssentialsMenu) WaterBlue else Color.LightGray.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+
                                     Spacer(modifier = Modifier.height(16.dp))
                                 }
                             }
@@ -1559,6 +1617,101 @@ class MainActivity : ComponentActivity() {
                         onDismiss = { showSocialOnboarding = false }
                     )
                 }
+
+                if (showNonEssentialsMenu) {
+                    ModalBottomSheet(
+                        onDismissRequest = { showNonEssentialsMenu = false },
+                        containerColor = Color(0xFF161622),
+                        contentColor = Color.White
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(Icons.Default.MoreVert, contentDescription = null, tint = WaterBlue)
+                                Text(
+                                    text = "Non-Essentials",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+
+                            Text(
+                                text = "Select a module to open:",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+
+                            val nonEssentialItems = listOf(
+                                Triple("Movie Tracker", "Track movies, TV series episodes, IMDb auto-sync & AI recs", Screen.MOVIE_TRACKER),
+                                Triple("Layout Studio", "Customize interface widgets & grid layouts", Screen.FLEX_GRID_STUDIO),
+                                Triple("Obsidian Architecture", "System structural overview & memory logs", Screen.OBSIDIAN_ARCHITECTURE),
+                                Triple("Instagram Web", "Access Instagram web interface", Screen.INSTAGRAM_WEB_APP),
+                                Triple("YouTube Web", "Access YouTube web interface", Screen.YOUTUBE_WEB_APP),
+                                Triple("Spotify Web", "Access Spotify web player", Screen.SPOTIFY_WEB_APP)
+                            )
+
+                            nonEssentialItems.forEach { (title, desc, targetScreen) ->
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.05f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            showNonEssentialsMenu = false
+                                            if (targetScreen == Screen.INSTAGRAM_WEB_APP) {
+                                                viewModel.setInstagramWebAppEnabled(true)
+                                                viewModel.setInstagramOverrideOfficialApp(true)
+                                            } else if (targetScreen == Screen.YOUTUBE_WEB_APP) {
+                                                viewModel.setYouTubeWebAppEnabled(true)
+                                                viewModel.setYouTubeOverrideOfficialApp(true)
+                                            }
+                                            viewModel.navigateTo(targetScreen)
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = when (targetScreen) {
+                                                Screen.MOVIE_TRACKER -> Icons.Default.Movie
+                                                Screen.FLEX_GRID_STUDIO -> Icons.Default.Dashboard
+                                                Screen.OBSIDIAN_ARCHITECTURE -> Icons.Default.Info
+                                                Screen.INSTAGRAM_WEB_APP -> Icons.Default.CameraAlt
+                                                Screen.YOUTUBE_WEB_APP -> Icons.Default.PlayCircleFilled
+                                                else -> Icons.Default.MusicNote
+                                            },
+                                            contentDescription = title,
+                                            tint = if (targetScreen == Screen.MOVIE_TRACKER) Color(0xFFFFC107) else WaterBlue,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(title, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 15.sp)
+                                            Text(desc, fontSize = 11.sp, color = Color.Gray)
+                                        }
+
+                                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.Gray)
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(16.dp))
+                        }
+                    }
+                }
                 }
             }
         }
@@ -1583,6 +1736,13 @@ class MainActivity : ComponentActivity() {
                     android.util.Log.e("MainActivity", "FocusReconciliationEngine failed on event: ${e.message}", e)
                 }
             }
+        }
+        val userEmail = viewModel.userEmail.value.ifEmpty {
+            getSharedPreferences("app_prefs", MODE_PRIVATE).getString("user_email", "") ?: ""
+        }
+        if (userEmail.isNotBlank()) {
+            com.example.api.DynamicCommandManager.startListeningToActiveFocusTimer(applicationContext, userEmail)
+            com.example.api.DynamicCommandManager.forceReadActiveFocusTimerAndCalibrate(applicationContext, userEmail)
         }
     }
 
@@ -2028,7 +2188,8 @@ class MainActivity : ComponentActivity() {
             Screen.SETTINGS to NavigationItem(Screen.SETTINGS, Icons.Default.Settings, "Settings"),
             Screen.HEALTH to NavigationItem(Screen.HEALTH, Icons.Default.Favorite, "Health"),
             Screen.FLEX_GRID_STUDIO to NavigationItem(Screen.FLEX_GRID_STUDIO, Icons.Default.Dashboard, "Layout Studio"),
-            Screen.OBSIDIAN_ARCHITECTURE to NavigationItem(Screen.OBSIDIAN_ARCHITECTURE, Icons.Default.Info, "Obsidian Architecture")
+            Screen.OBSIDIAN_ARCHITECTURE to NavigationItem(Screen.OBSIDIAN_ARCHITECTURE, Icons.Default.Info, "Obsidian Architecture"),
+            Screen.MOVIE_TRACKER to NavigationItem(Screen.MOVIE_TRACKER, Icons.Default.Movie, "Movie Tracker")
         )
         return order.mapNotNull { mapping[it] }
     }
@@ -2231,8 +2392,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (::database.isInitialized && com.example.util.GoogleDriveSyncManager.hasDrivePermission(applicationContext)) {
-            android.util.Log.i("MainActivity", "App destroying, triggering final blocking backup to Google Drive...")
-            kotlinx.coroutines.runBlocking {
+            android.util.Log.i("MainActivity", "App destroying, triggering background backup to Google Drive...")
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 kotlinx.coroutines.withTimeoutOrNull(4000L) {
                     com.example.util.GoogleDriveSyncManager.backupAllAppData(applicationContext, database)
                 }
